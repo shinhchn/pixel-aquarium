@@ -358,6 +358,36 @@
   .focus-set small { font: 10px var(--font-small); color: #6f8fb5; }
   #focus-note { margin: 8px 0 0; font-size: 12px; color: var(--ui-dim); }
 
+  /* 후원 카드: 집중을 끝까지 마쳤을 때만 오른쪽 구석(도구 막대 위)에 잠깐 */
+  #donate-card {
+    position: fixed;
+    right: 12px;
+    width: min(250px, calc(100vw - 24px));
+    box-sizing: border-box;
+    background: var(--ui-bg);
+    border: 2px solid var(--ui-border);
+    color: var(--ui-text);
+    font: 12px/1.6 var(--font);
+    padding: 8px 10px;
+    z-index: 16;
+  }
+  #donate-card p { margin: 0 0 6px; }
+  #donate-card .row { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+  #donate-card a, #donate-card button {
+    font: 12px var(--font);
+    color: var(--ui-text);
+    background: #0a1a33;
+    border: 2px solid var(--ui-border);
+    padding: 2px 8px;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  #donate-card a { color: #fff3a0; border-color: #fff3a0; }
+  #donate-card a:hover, #donate-card button:hover { background: #163562; }
+  .panel .credit { margin: 10px 0 0; font-size: 11px; color: var(--ui-dim); text-align: right; }
+  .panel .credit a { color: var(--ui-accent); }
+
   @media (max-width: 560px) {
     .btn { width: 34px; height: 34px; }
     .btn canvas { width: 20px; height: 20px; }
@@ -446,6 +476,15 @@
   <div class="row">
     <button id="reset-btn" class="danger">수조 새로 시작</button>
     <button id="help-close">닫기</button>
+  </div>
+  <p class="credit"><a href="https://github.com/shinhchn/pixel-aquarium" target="_blank" rel="noopener">만든 사람</a> · <a class="donate-go" target="_blank" rel="noopener">후원하기</a></p>
+</div>
+
+<div id="donate-card" class="ui zen-hide" hidden>
+  <p>오늘도 집중 완료 🐟<br>이 수조는 대학생 개발자가 혼자 만들고 있어요. 마음에 드셨다면 작은 후원이 큰 힘이 돼요.</p>
+  <div class="row">
+    <a class="donate-go" target="_blank" rel="noopener">커피 한 잔 후원하기</a>
+    <button type="button" id="donate-later">다음에요</button>
   </div>
 </div>
 
@@ -639,6 +678,13 @@
   const FOCUS_RANGE = [5, 90, 5];    // 집중 시간 [최소, 최대, 한 번 누를 때 바뀌는 양](분)
   const BREAK_RANGE = [1, 30, 1];    // 휴식 시간 [최소, 최대, 한 번 누를 때 바뀌는 양](분)
   const FOCUS_CHIME_VOLUME = 0.1;    // 끝날 때 알림음 크기 (소리 설정과 상관없이 이 크기로 울린다)
+
+  // 후원 카드
+  const DONATE_URL = 'https://qr.kakaopay.com/FZwYvY4js'; // [후원하기]가 새 탭으로 여는 주소
+  const DONATE_FIRST = 3;            // 누적 집중 완료 몇 번째에 처음 보여 줄지
+  const DONATE_EVERY = 5;            // 그 뒤로는 완료 몇 번마다 보여 줄지
+  const DONATE_SNOOZE_DAYS = 7;      // [다음에요]를 누르면 이만큼(일) 안 보여 준다
+  const DONATE_SHOW_TIME = 10;       // 카드가 혼자 닫히기까지(초)
 
   // ===== 여기부터 구현 =====
 
@@ -3408,6 +3454,7 @@
     focus.prevZen = settings.zen;
     setZenTo(true);
     hideWelcome();
+    hideDonateCard();
     focus.hintUntil = Date.now() + 8000;
     focusPanel.hidden = true;
     startPhase('focus', Date.now() + focus.focusMin * 60000);
@@ -3435,6 +3482,7 @@
       playFocusChime('focus');
       cheerFish();
       setZenTo(focus.prevZen);
+      maybeShowDonateCard();
       log(`집중 한 번 끝! 오늘 ${focus.today}번째예요 · ${focus.breakMin}분 쉬어 가요`);
       startPhase('break', Date.now() + focus.breakMin * 60000);
     } else {
@@ -3579,6 +3627,51 @@
       // 무시
     }
   }
+
+  // ===== 후원 카드 =====
+  // 광고 대신 부담 없는 후원 통로. 집중을 끝까지 마쳤을 때만, 그것도 가끔 구석에 잠깐 띄운다.
+  // 완료 횟수는 집중 타이머의 focus.total(저장됨)을 그대로 쓴다
+  const donate = {
+    dismissedAt: 0,    // [다음에요]를 마지막으로 누른 시각(ms)
+    clicked: false,    // 후원 링크를 누른 적이 있으면 다시는 자동으로 안 띄운다
+  };
+  const donateCard = document.getElementById('donate-card');
+  const dockEl = document.getElementById('dock');
+  let donateTimer = 0;
+
+  function hideDonateCard() {
+    clearTimeout(donateTimer);
+    donateCard.hidden = true;
+  }
+
+  // 집중을 끝까지 마칠 때마다 부른다: 3번째, 그 뒤 5번마다. 쉬는 중이거나 바라보기 모드면 건너뛴다
+  function maybeShowDonateCard() {
+    const n = focus.total;
+    const due = n === DONATE_FIRST || (n > DONATE_FIRST && (n - DONATE_FIRST) % DONATE_EVERY === 0);
+    const snoozed = Date.now() - donate.dismissedAt < DONATE_SNOOZE_DAYS * 86400000;
+    if (!due || snoozed || donate.clicked || settings.zen) return;
+    // 도구 막대 바로 위에 둬서 모바일에서도 겹치지 않게 한다
+    donateCard.style.bottom = innerHeight - dockEl.getBoundingClientRect().top + 8 + 'px';
+    donateCard.hidden = false;
+    clearTimeout(donateTimer);
+    donateTimer = setTimeout(hideDonateCard, DONATE_SHOW_TIME * 1000);
+  }
+
+  // 카드의 [후원하기]와 도움말 맨 아래 '후원하기' 둘 다
+  for (const a of document.querySelectorAll('.donate-go')) {
+    a.href = DONATE_URL;
+    a.addEventListener('click', () => {
+      hideDonateCard();
+      if (!donate.clicked) log('고마워요! 물고기들이 더 힘내서 헤엄칠 거예요 🫧');
+      donate.clicked = true;
+      saveSoon();
+    });
+  }
+  document.getElementById('donate-later').addEventListener('click', () => {
+    donate.dismissedAt = Date.now();
+    hideDonateCard();
+    saveSoon();
+  });
 
   // ===== 이름 짓기 =====
   let renaming = null;
@@ -3815,6 +3908,7 @@
         })),
         plants: PLANTS.map((p) => ({ fx: p.fx, heights: p.heights, phase: p.phase, color: p.color, grow: p.grow })),
         focus: focusSaveData(),
+        donate,
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     } catch (err) {
@@ -3842,6 +3936,11 @@
         settings.zen = !!data.settings.zen;
       }
       loadFocus(data.focus);
+      // 예전 저장에는 donate가 없다 → 기본값(닫은 적 없음, 누른 적 없음) 그대로 둔다
+      if (data.donate) {
+        donate.dismissedAt = +data.donate.dismissedAt || 0;
+        donate.clicked = data.donate.clicked === true;
+      }
       if (data.stats) Object.assign(stats, data.stats);
       if (Array.isArray(data.plants)) {
         PLANTS = data.plants
