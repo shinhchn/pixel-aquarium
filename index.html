@@ -573,7 +573,7 @@
   const NIGHT_SLEEP_TIME = [15, 40]; // 밤에 잠들면 적어도 이만큼(초)은 잔다
 
   // 번식
-  const MAX_FISH = 16;               // 수조에 있을 수 있는 최대 물고기 수 (알 포함)
+  const MAX_FISH = 10;               // 수조에 있을 수 있는 최대 물고기 수 (알 포함)
   const BREED_STAMINA = 75;          // 둘 다 체력이 이 이상이어야 짝을 찾는다 (먹이를 넉넉히 주면 번식한다)
   const BREED_KEEP_STAMINA = 55;     // 짝이 된 뒤에는 이 아래로 떨어지면 포기
   const BREED_SEEK_RADIUS = 90;      // 이 거리 안의 짝만 찾는다
@@ -587,6 +587,12 @@
   const ADULT_AGE = 60;              // 아기가 다 자라기까지(초)
   const BABY_SPEED_MUL = 0.8;        // 아기는 조금 느리게 헤엄친다
   const TRAIT_INHERIT_NOISE = 0.15;  // 아기 성향은 부모 평균에서 이만큼 무작위로 달라진다
+  const CROWD_COOLDOWN_MUL = 2;      // 물고기가 많을수록 번식 쉬는 시간이 길어진다 (가득 차면 1 + 이 값 배)
+
+  // 수명
+  const LIFESPAN = [30 * 60, 180 * 60]; // 다 자란 뒤 사는 시간(초), 물고기마다 이 안에서 랜덤. 화면을 켜 둔 시간만 센다
+  const MIN_FISH = 3;                // 이보다 적게 남으면 늙어도 떠나지 않는다 (수조가 텅 비지 않게)
+  const LEAVE_TIME = 3;              // 떠날 때 서서히 투명해지는 시간(초)
 
   // 성격별 값
   // speed: 평소 헤엄 속도 범위, chaseSpeed: 먹이 쫓는 속도, reaction: 먹이를 알아채기까지 걸리는 시간(초)
@@ -1095,6 +1101,8 @@
       flipped: dir === -1,      // 왼쪽을 향할 때 위아래를 뒤집어 배가 아래로 오게 한다
       baby,
       age: def.age ?? 0,
+      lifespan: def.lifespan ?? ADULT_AGE + rand(...LIFESPAN), // 나이가 이만큼 되면 떠난다(초)
+      leaving: 0,               // 떠나는 중이면 남은 시간 (LEAVE_TIME → 0)
       traits: { ...def.traits },
       nature: { ...(def.nature ?? def.traits) }, // 타고난 성향: 시간이 지나면 천천히 이쪽으로 돌아온다
       personalityTimer: 0,
@@ -1873,6 +1881,7 @@
 
   function canBreed(f, keeping) {
     return !f.baby &&
+      !f.leaving &&
       f.breedCooldown <= 0 &&
       !f.rest &&
       f.stamina >= (keeping ? BREED_KEEP_STAMINA : BREED_STAMINA) &&
@@ -1966,7 +1975,7 @@
     }
     for (const f of [a, b]) {
       f.stamina -= BREED_COST;
-      f.breedCooldown = BREED_COOLDOWN;
+      f.breedCooldown = BREED_COOLDOWN * (1 + CROWD_COOLDOWN_MUL * fishes.length / MAX_FISH);
     }
     unpair(a);
     for (let i = 0; i < 4; i++) emit('heart', x + rand(-6, 6), y - rand(0, 6));
@@ -1996,8 +2005,7 @@
   }
 
   function hatch(egg) {
-    // 부모가 이미 수조를 떠났으면(새로 시작 등) 알도 없던 일로 한다
-    if (!egg.parents.every((p) => fishes.includes(p))) return;
+    // 부모가 수명을 다해 떠났어도 알은 깨어난다 (새로 시작할 때는 resetTank가 알을 비운다)
     const [a, b] = Math.random() < 0.5 ? egg.parents : [...egg.parents].reverse();
     const t = rand(0.3, 0.7);
     const palette = {};
@@ -2052,6 +2060,30 @@
       ctx.fillRect(x, y, 2, 2);
       ctx.fillStyle = '#fffbea';
       ctx.fillRect(x, y, 1, 1);
+    }
+  }
+
+  // ===== 수명 =====
+  // 다 자란 물고기는 수명이 다하면 서서히 투명해지며 떠난다. 수조가 텅 비지 않게 몇 마리는 남긴다
+  function updateLifespan(dt) {
+    let staying = fishes.filter((f) => !f.leaving).length;
+    for (let i = fishes.length - 1; i >= 0; i--) {
+      const f = fishes[i];
+      if (!f.leaving) {
+        if (f.baby || f.age < f.lifespan || staying <= MIN_FISH) continue;
+        f.leaving = LEAVE_TIME;
+        staying--;
+        unpair(f);
+        continue;
+      }
+      f.leaving -= dt;
+      if (f.leaving > 0) continue;
+      const c = centerOf(f);
+      for (let k = 0; k < 4; k++) emit('spark', c.x + rand(-4, 4), c.y + rand(-3, 3));
+      if (renaming === f) closeRename();
+      fishes.splice(i, 1);
+      log(`${f.name}이(가) 별이 되었어요 · ${Math.max(1, Math.round(f.age / 60))}분 함께했어요`);
+      saveSoon();
     }
   }
 
@@ -2409,6 +2441,7 @@
     const radius = Math.ceil(Math.hypot(f.w, f.h) / 2) + 1;
     const tailEdge = shape.tailEnd * f.size - f.w / 2; // 이보다 뒤쪽(lx가 작은 쪽)이 꼬리
     const wag = Math.sin(f.tailPhase) * TAIL_WAG * f.size;
+    if (f.leaving) ctx.globalAlpha = Math.max(0, f.leaving / LEAVE_TIME);
 
     for (let py = Math.floor(cy - radius); py <= cy + radius; py++) {
       for (let px = Math.floor(cx - radius); px <= cx + radius; px++) {
@@ -2436,6 +2469,7 @@
     const asleep = f.rest && light.night > 0.6;
     ctx.fillStyle = asleep ? f.palette[2] : f.palette[3];
     ctx.fillRect(Math.floor(eyeX - f.size / 2 + 0.5), Math.floor(eyeY - f.size / 2 + 0.5), f.size, f.size);
+    ctx.globalAlpha = 1;
   }
 
   // 위에서 아래로 점점 어두워지는 계단식 물 색
@@ -3776,7 +3810,7 @@
         stats,
         fishes: fishes.map((f) => ({
           name: f.name, species: f.species, palette: f.palette, traits: f.traits, nature: f.nature,
-          personality: f.personality, baby: f.baby, age: f.age, size: f.size,
+          personality: f.personality, baby: f.baby, age: f.age, lifespan: Math.round(f.lifespan), size: f.size,
           stamina: Math.round(f.stamina), x: Math.round(f.x), baseY: Math.round(f.baseY), H,
         })),
         plants: PLANTS.map((p) => ({ fx: p.fx, heights: p.heights, phase: p.phase, color: p.color, grow: p.grow })),
@@ -3815,7 +3849,8 @@
           .map((p) => ({ fx: p.fx, heights: p.heights.map(Number), phase: +p.phase || 0, color: PLANT_COLORS[p.color] ? p.color : 'green', grow: clamp01(+p.grow || 0) }));
       }
       if (Array.isArray(data.fishes) && data.fishes.length) {
-        fishes = data.fishes.slice(0, MAX_FISH).map((d) => {
+        // 예전 최대(16마리)까지는 그대로 불러온다. 남는 물고기는 수명이 다하면 자연스럽게 줄어든다
+        fishes = data.fishes.slice(0, 16).map((d) => {
           const f = createFish({
             name: String(d.name).slice(0, 12),
             species: d.species, // 예전 저장에는 없다 → createFish가 금붕어로 둔다
@@ -3824,6 +3859,8 @@
             nature: d.nature,
             baby: !!d.baby,
             age: +d.age || 0,
+            // 예전 저장에는 수명이 없다 → 지금 나이에서 새로 정해 불러오자마자 떠나지 않게 한다
+            lifespan: +d.lifespan || (+d.age || 0) + rand(...LIFESPAN),
             size: d.baby ? 1 : (d.size === 2 ? 2 : 1),
             stamina: clamp(+d.stamina || 60, 0, STAMINA_MAX),
             x: clamp(+d.x || 0, 0, W - 20),
@@ -3931,6 +3968,7 @@
     petted = findPetted();
     for (const f of fishes) updateFish(f, dt);
     updateBreeding(dt);
+    updateLifespan(dt);
     eatFoods();
     updateBubbleTool(dt);
     updateBubbles(dt);
