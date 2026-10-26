@@ -282,6 +282,18 @@
     outline: none;
   }
 
+  /* 집중 타이머: 시계 아래 남은 시간 (바라보기 모드에서도 보인다) */
+  #focus-info { pointer-events: auto; cursor: pointer; margin-top: 2px; }
+  #focus-time { font: 16px var(--font); color: #fff3a0; }
+  #focus-time.break { color: #9fe0b0; }
+  .focus-hint { font: 10px var(--font-small); color: #6f8fb5; }
+  .focus-set { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .focus-set span { width: 3.5em; color: var(--ui-dim); }
+  .focus-set b { min-width: 3.5em; text-align: center; font: 700 15px var(--font); color: #fff3a0; }
+  .panel .focus-set button { min-width: 32px; padding: 2px 6px; }
+  .focus-set small { font: 10px var(--font-small); color: #6f8fb5; }
+  #focus-note { margin: 8px 0 0; font-size: 12px; color: var(--ui-dim); }
+
   @media (max-width: 560px) {
     .btn { width: 34px; height: 34px; }
     .btn canvas { width: 20px; height: 20px; }
@@ -309,6 +321,7 @@
 <div id="info" class="ui zen-soft">
   <div id="clock"></div>
   <div id="stats"></div>
+  <div id="focus-info" hidden></div>
 </div>
 
 <div id="breath" hidden></div>
@@ -339,10 +352,38 @@
     <li><kbd>T</kbd> 시간 (자동 → 낮 → 노을 → 밤)</li>
     <li><kbd>S</kbd> 소리 (끔 → 물소리 → 물소리+음악)</li>
     <li><kbd>B</kbd> 호흡 안내 · <kbd>H</kbd> 바라보기 모드 · <kbd>F</kbd> 전체 화면</li>
+    <li><kbd>P</kbd> 집중 타이머 · 집중하는 동안엔 수조만 보여요</li>
   </ul>
   <div class="row">
     <button id="reset-btn" class="danger">수조 새로 시작</button>
     <button id="help-close">닫기</button>
+  </div>
+</div>
+
+<div id="focus-panel" class="panel" hidden>
+  <h2>집중 타이머</h2>
+  <div class="focus-set">
+    <span>집중</span>
+    <button type="button" data-adj="focusMin" data-d="-1" aria-label="집중 시간 줄이기">−</button>
+    <b id="focus-min"></b>
+    <button type="button" data-adj="focusMin" data-d="1" aria-label="집중 시간 늘리기">+</button>
+  </div>
+  <div class="focus-set">
+    <span>휴식</span>
+    <button type="button" data-adj="breakMin" data-d="-1" aria-label="휴식 시간 줄이기">−</button>
+    <b id="break-min"></b>
+    <button type="button" data-adj="breakMin" data-d="1" aria-label="휴식 시간 늘리기">+</button>
+  </div>
+  <div class="focus-set">
+    <span>알림음</span>
+    <button type="button" id="focus-chime"></button>
+    <small>소리를 꺼 둬도 울려요</small>
+  </div>
+  <p id="focus-note"></p>
+  <div class="row">
+    <button type="button" id="focus-stop" class="danger">그만하기</button>
+    <button type="button" id="focus-close">닫기</button>
+    <button type="button" id="focus-start">집중 시작</button>
   </div>
 </div>
 
@@ -478,6 +519,13 @@
     friendly: { fear: 0.05, appetite: 0.35, activity: 0.5 },
     normal:   { fear: 0.3,  appetite: 0.35, activity: 0.45 },
   };
+
+  // 집중 타이머 (뽀모도로)
+  const FOCUS_MINUTES = 25;          // 집중 시간 기본값(분)
+  const BREAK_MINUTES = 5;           // 휴식 시간 기본값(분)
+  const FOCUS_RANGE = [5, 90, 5];    // 집중 시간 [최소, 최대, 한 번 누를 때 바뀌는 양](분)
+  const BREAK_RANGE = [1, 30, 1];    // 휴식 시간 [최소, 최대, 한 번 누를 때 바뀌는 양](분)
+  const FOCUS_CHIME_VOLUME = 0.1;    // 끝날 때 알림음 크기 (소리 설정과 상관없이 이 크기로 울린다)
 
   // ===== 여기부터 구현 =====
 
@@ -2667,6 +2715,7 @@
     zen:    { rows: ['..........', '..eeeeee..', '.e......e.', 'e...pp...e', 'e...pp...e', '.e......e.', '..eeeeee..', '..........', '..........', '..........'], colors: { e: '#cfe0ff', p: '#3cc6c4' } },
     full:   { rows: ['ff....ff..', 'f......f..', '..........', '..........', '..........', '..........', 'f......f..', 'ff....ff..', '..........', '..........'], colors: { f: '#cfe0ff' } },
     help:   { rows: ['..qqqq....', '.q....q...', '......q...', '.....q....', '....q.....', '....q.....', '..........', '....q.....', '..........', '..........'], colors: { q: '#cfe0ff' } },
+    focus:  { rows: ['...g.g....', '....g.....', '.rrgggrr..', 'rrrrgrrrr.', 'rwrrrrrrr.', 'rwrrrrrrr.', 'rrrrrrrrr.', 'rrrrrrrrr.', '.rrrrrrr..', '..rrrrr...'], colors: { r: '#e8584a', g: '#7cc444', w: '#ffb0a0' } },
   };
 
   function iconCanvas(name) {
@@ -2751,6 +2800,7 @@
 
   for (const [name, t] of Object.entries(TOOLS)) makeButton(name, name, `${t.label} (${t.key})`, t.key, () => setTool(name));
   separator();
+  makeButton('focus', 'focus', '집중 타이머 (P)', 'P', toggleFocusPanel);
   makeButton('time', 'auto', '시간 (T)', 'T', cycleTime);
   makeButton('sound', 'soundOff', '소리 (S)', 'S', cycleSound);
   makeButton('breath', 'breath', '호흡 안내 (B)', 'B', toggleBreath);
@@ -2814,6 +2864,7 @@
   const helpEl = document.getElementById('help');
   function toggleHelp() {
     helpEl.hidden = !helpEl.hidden;
+    if (!helpEl.hidden) focusPanel.hidden = true;
   }
   document.getElementById('help-close').addEventListener('click', () => { helpEl.hidden = true; });
   document.getElementById('reset-btn').addEventListener('click', () => {
@@ -2904,6 +2955,278 @@
       ctx.fillRect(cx - half + 1, cy + yy, half * 2 - 1, 1);
     }
     ctx.globalAlpha = 1;
+  }
+
+  // ===== 집중 타이머 (뽀모도로) =====
+  // 집중하는 동안엔 바라보기 모드로 수조만 보여 주고, 끝나면 알림음과 함께 물고기들이 반겨 준다.
+  // 시간은 프레임이 아니라 실제 시각(endAt)으로 재서, 탭을 내려 둬도 제때 끝난다
+  const focus = {
+    focusMin: FOCUS_MINUTES,
+    breakMin: BREAK_MINUTES,
+    chime: true,       // 끝날 때 알림음
+    day: '',           // 오늘 날짜 (날이 바뀌면 오늘 횟수를 새로 센다)
+    today: 0,          // 오늘 끝까지 마친 집중 횟수
+    total: 0,
+    phase: null,       // null = 꺼짐, 'focus' = 집중, 'break' = 휴식
+    endAt: 0,          // 지금 단계가 끝나는 시각(ms)
+    prevZen: false,    // 집중 전에 바라보기 모드였는지 (끝나면 되돌린다)
+    timeout: 0,
+    hintUntil: 0,
+    cheer: [],         // 물고기 반응 대기열 (탭이 가려져 있었으면 돌아왔을 때 보여 준다)
+    shown: '',
+  };
+  const FOCUS_PHASE_LABELS = { focus: '집중', break: '휴식' };
+  // 알림음 [음 번호(NOTES), 시작(초), 옥타브 배율]
+  const FOCUS_CHIMES = {
+    focus: [[0, 0, 2], [2, 0.18, 2], [3, 0.36, 2], [0, 0.62, 4]], // 도 미 솔 → 높은 도
+    break: [[2, 0, 2], [3, 0.22, 2]],                             // 미 솔
+  };
+  const BASE_TITLE = document.title;
+
+  const focusPanel = document.getElementById('focus-panel');
+  const focusInfoEl = document.getElementById('focus-info');
+  const focusNoteEl = document.getElementById('focus-note');
+  const focusStartBtn = document.getElementById('focus-start');
+  const focusStopBtn = document.getElementById('focus-stop');
+  const focusChimeBtn = document.getElementById('focus-chime');
+  // 도구 막대 버튼 왼쪽 위에 오늘 집중한 횟수를 작게 띄운다
+  const focusBadge = document.createElement('span');
+  focusBadge.className = 'badge';
+  buttons.focus.appendChild(focusBadge);
+
+  function todayKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  function checkFocusDay() {
+    const k = todayKey();
+    if (focus.day !== k) {
+      focus.day = k;
+      focus.today = 0;
+    }
+  }
+
+  function focusLeft() {
+    return Math.max(0, Math.ceil((focus.endAt - Date.now()) / 1000));
+  }
+
+  function formatTime(sec) {
+    return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+  }
+
+  function setZenTo(on) {
+    if (settings.zen !== on) toggleZen();
+  }
+
+  // 브라우저는 사용자가 누른 순간에만 소리를 켜 주므로, 그때 미리 깨워 둔다
+  function wakeChime() {
+    initAudio();
+    if (audio.ctx && audio.ctx.state !== 'running') audio.ctx.resume().catch(() => {});
+  }
+
+  // 오르골처럼 부드럽게 울린다. 소리를 꺼 둬도 들리도록 전체 볼륨(master)을 거치지 않는다
+  function playFocusChime(kind) {
+    if (!focus.chime) return;
+    wakeChime();
+    if (!audio.ctx) return;
+    const ac = audio.ctx;
+    for (const [n, when, oct] of FOCUS_CHIMES[kind]) {
+      const t = ac.currentTime + 0.05 + when;
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.frequency.value = NOTES[n] * oct;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(FOCUS_CHIME_VOLUME, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+      o.connect(g);
+      g.connect(ac.destination);
+      o.start(t);
+      o.stop(t + 2.5);
+    }
+  }
+
+  function startPhase(phase, endAt) {
+    clearTimeout(focus.timeout);
+    focus.phase = phase;
+    focus.endAt = endAt;
+    // 탭이 가려지면 화면 갱신이 멈추므로, 끝나는 순간은 타이머로 따로 잡는다
+    focus.timeout = setTimeout(finishPhase, Math.max(0, endAt - Date.now()));
+    renderFocus();
+  }
+
+  function startFocus() {
+    if (focus.chime) wakeChime();
+    focus.prevZen = settings.zen;
+    setZenTo(true);
+    hideWelcome();
+    focus.hintUntil = Date.now() + 8000;
+    focusPanel.hidden = true;
+    startPhase('focus', Date.now() + focus.focusMin * 60000);
+    saveSoon();
+  }
+
+  function stopFocus() {
+    if (!focus.phase) return;
+    clearTimeout(focus.timeout);
+    if (focus.phase === 'focus') setZenTo(focus.prevZen);
+    focus.phase = null;
+    focusPanel.hidden = true;
+    log('타이머를 멈췄어요');
+    renderFocus();
+    saveSoon();
+  }
+
+  function finishPhase() {
+    if (!focus.phase) return;
+    clearTimeout(focus.timeout);
+    if (focus.phase === 'focus') {
+      checkFocusDay();
+      focus.today++;
+      focus.total++;
+      playFocusChime('focus');
+      cheerFish();
+      setZenTo(focus.prevZen);
+      log(`집중 한 번 끝! 오늘 ${focus.today}번째예요 · ${focus.breakMin}분 쉬어 가요`);
+      startPhase('break', Date.now() + focus.breakMin * 60000);
+    } else {
+      focus.phase = null;
+      playFocusChime('break');
+      log('휴식 끝 · 준비되면 다시 집중해요');
+      showHint('타이머 버튼(P)으로 다시 집중할 수 있어요', 8);
+      renderFocus();
+    }
+    // 탭이 가려져 있으면 저장 예약(saveSoon)이 돌지 않으니 바로 저장한다
+    saveTank();
+  }
+
+  // 집중을 마치면 물고기들이 하트를 띄우며 수면 쪽으로 올라오고, 바닥에서 거품이 피어오른다
+  function cheerFish() {
+    fishes.forEach((f, i) => {
+      focus.cheer.push({ f, t: i * 0.18 });
+      focus.cheer.push({ f, t: i * 0.18 + 0.8 });
+    });
+    for (let i = 0; i < 12; i++) focus.cheer.push({ bubble: true, t: rand(0, 2.5) });
+  }
+
+  function updateFocus(dt) {
+    for (let i = focus.cheer.length - 1; i >= 0; i--) {
+      const c = focus.cheer[i];
+      c.t -= dt;
+      if (c.t > 0) continue;
+      focus.cheer.splice(i, 1);
+      if (c.bubble) {
+        emitBubble(rand(8, W - 8), H - SAND_H - 1, pick([1, 2, 2, 3]), rand(-2, 2));
+      } else if (fishes.includes(c.f)) {
+        const f = c.f;
+        emit('heart', centerOf(f).x + rand(-2, 2), f.y - 2);
+        f.tailSpeed = 12; // 꼬리를 신나게 흔든다
+        if (!f.rest) f.cruiseY = swimTop() + rand(4, 20);
+      }
+    }
+  }
+
+  // 시계 아래 남은 시간, 탭 제목, 버튼 상태를 고친다. 글자가 바뀔 때만 손댄다
+  function renderFocus() {
+    checkFocusDay();
+    let html = '';
+    let title = BASE_TITLE;
+    if (focus.phase) {
+      const left = formatTime(focusLeft());
+      const label = FOCUS_PHASE_LABELS[focus.phase];
+      html = `<div id="focus-time" class="${focus.phase}">${label} ${left}</div>`;
+      title = `${left} ${label} · ${BASE_TITLE}`;
+    }
+    if (focus.today) html += `<div>오늘 집중 ${focus.today}번</div>`;
+    if (focus.phase === 'focus' && Date.now() < focus.hintUntil) {
+      html += '<div class="focus-hint">여기를 누르면 멈출 수 있어요 · 더블클릭: 도구 보기</div>';
+    }
+    if (html === focus.shown) return;
+    focus.shown = html;
+    focusInfoEl.innerHTML = html;
+    focusInfoEl.hidden = !html;
+    document.title = title;
+    focusBadge.textContent = focus.today || '';
+    buttons.focus.classList.toggle('active', !!focus.phase);
+    if (!focusPanel.hidden) renderFocusPanel();
+  }
+
+  function renderFocusPanel() {
+    checkFocusDay();
+    document.getElementById('focus-min').textContent = `${focus.focusMin}분`;
+    document.getElementById('break-min').textContent = `${focus.breakMin}분`;
+    focusChimeBtn.textContent = focus.chime ? '켬' : '끔';
+    focusStartBtn.hidden = focus.phase === 'focus';
+    focusStartBtn.textContent = focus.phase === 'break' ? '바로 집중' : '집중 시작';
+    focusStopBtn.hidden = !focus.phase;
+    const today = focus.today ? `오늘 ${focus.today}번 집중했어요` : '오늘 첫 집중을 시작해 볼까요?';
+    focusNoteEl.textContent = focus.phase
+      ? `지금 ${FOCUS_PHASE_LABELS[focus.phase]} 중 · ${formatTime(focusLeft())} 남았어요 · ${today}`
+      : `집중하는 동안엔 수조만 보여요 · ${today}`;
+  }
+
+  function toggleFocusPanel() {
+    if (focusPanel.hidden) {
+      helpEl.hidden = true;
+      renderFocusPanel();
+    }
+    focusPanel.hidden = !focusPanel.hidden;
+  }
+
+  focusPanel.querySelectorAll('[data-adj]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const key = b.dataset.adj;
+      const [lo, hi, step] = key === 'focusMin' ? FOCUS_RANGE : BREAK_RANGE;
+      focus[key] = clamp(focus[key] + step * +b.dataset.d, lo, hi);
+      renderFocusPanel();
+      sfx('ui');
+      saveSoon();
+    });
+  });
+  focusChimeBtn.addEventListener('click', () => {
+    focus.chime = !focus.chime;
+    // 켤 때 한 번 들려줘서 크기를 미리 알 수 있게 한다
+    if (focus.chime) playFocusChime('break');
+    renderFocusPanel();
+    saveSoon();
+  });
+  focusStartBtn.addEventListener('click', startFocus);
+  focusStopBtn.addEventListener('click', stopFocus);
+  document.getElementById('focus-close').addEventListener('click', () => { focusPanel.hidden = true; });
+  focusInfoEl.addEventListener('click', toggleFocusPanel);
+
+  setInterval(() => {
+    if (focus.phase && Date.now() >= focus.endAt) finishPhase();
+    renderFocus();
+  }, 250);
+
+  function focusSaveData() {
+    const { focusMin, breakMin, chime, day, today, total, phase, endAt, prevZen } = focus;
+    return { focusMin, breakMin, chime, day, today, total, phase, endAt, prevZen };
+  }
+
+  // 예전 저장 데이터에는 focus가 없으니 있을 때만 읽고, 이상한 값은 기본값으로 둔다.
+  // 여기서 문제가 생겨도 수조는 그대로 불러오도록 따로 감싼다
+  function loadFocus(d) {
+    if (!d || typeof d !== 'object') return;
+    try {
+      focus.focusMin = clamp(Math.round(+d.focusMin) || FOCUS_MINUTES, FOCUS_RANGE[0], FOCUS_RANGE[1]);
+      focus.breakMin = clamp(Math.round(+d.breakMin) || BREAK_MINUTES, BREAK_RANGE[0], BREAK_RANGE[1]);
+      focus.chime = d.chime !== false;
+      focus.day = typeof d.day === 'string' ? d.day : '';
+      focus.today = Math.max(0, Math.floor(+d.today) || 0);
+      focus.total = Math.max(0, Math.floor(+d.total) || 0);
+      focus.prevZen = !!d.prevZen;
+      // 새로고침해도 진행 중이던 타이머를 이어 간다
+      if (FOCUS_PHASE_LABELS[d.phase] && +d.endAt > Date.now()) {
+        startPhase(d.phase, +d.endAt);
+      } else if (d.phase === 'focus') {
+        // 창이 닫혀 있는 동안 끝났으면 바라보기 모드만 원래대로 돌려놓는다
+        settings.zen = focus.prevZen;
+      }
+    } catch (err) {
+      // 무시
+    }
   }
 
   // ===== 이름 짓기 =====
@@ -3025,8 +3348,9 @@
       closeRename();
       return;
     }
-    if (!helpEl.hidden) {
+    if (!helpEl.hidden || !focusPanel.hidden) {
       helpEl.hidden = true;
+      focusPanel.hidden = true;
       return;
     }
     const { x, y } = toTank(e);
@@ -3086,9 +3410,11 @@
     else if (k === 'b') toggleBreath();
     else if (k === 'h') toggleZen();
     else if (k === 'f') toggleFullscreen();
+    else if (k === 'p') toggleFocusPanel();
     else if (k === '?' || k === '/') toggleHelp();
     else if (k === 'escape') {
       helpEl.hidden = true;
+      focusPanel.hidden = true;
       if (breath.on) toggleBreath();
     }
   });
@@ -3132,6 +3458,7 @@
           stamina: Math.round(f.stamina), x: Math.round(f.x), baseY: Math.round(f.baseY), H,
         })),
         plants: PLANTS.map((p) => ({ fx: p.fx, heights: p.heights, phase: p.phase, color: p.color, grow: p.grow })),
+        focus: focusSaveData(),
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     } catch (err) {
@@ -3153,6 +3480,7 @@
         if ([0, 1, 2].includes(data.settings.sound)) settings.sound = data.settings.sound;
         settings.zen = !!data.settings.zen;
       }
+      loadFocus(data.focus);
       if (data.stats) Object.assign(stats, data.stats);
       if (Array.isArray(data.plants)) {
         PLANTS = data.plants
@@ -3285,6 +3613,7 @@
     updatePlankton(dt);
     updateParticles(dt);
     updateBreath(dt);
+    updateFocus(dt);
     updateMusic(dt);
     updateInfo(dt);
 
