@@ -1,0 +1,4 @@
+.DS_Store
+*recovery-key*
+.env
+node_modules/

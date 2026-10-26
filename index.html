@@ -1,0 +1,3327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>픽셀 아쿠아리움</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css">
+<style>
+  :root {
+    --ui-bg: rgba(4, 12, 28, 0.86);
+    --ui-border: #3a6ea5;
+    --ui-text: #e8f4ff;
+    --ui-dim: #9fb8d8;
+    --ui-accent: #9fd3ff;
+    --font: 'Galmuri11', 'Galmuri9', ui-monospace, monospace;
+    --font-small: 'Galmuri9', 'Galmuri11', ui-monospace, monospace;
+  }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #02060f;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas#tank {
+    position: fixed;
+    left: 0;
+    top: 0;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    display: block;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  body.zen.idle canvas#tank { cursor: none; }
+
+  /* 처음 열 때 어둠 속에서 천천히 밝아진다 */
+  #fade {
+    position: fixed;
+    inset: 0;
+    background: #02060f;
+    pointer-events: none;
+    z-index: 50;
+  }
+
+  /* 가장자리를 살짝 어둡게 해서 수조 안을 들여다보는 느낌을 낸다 */
+  #vignette {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 55%, rgba(0,4,12,0.45) 100%);
+  }
+
+  .ui { transition: opacity 0.8s ease; }
+  body.idle .ui.auto-hide { opacity: 0; }
+  body.idle .ui.auto-hide:hover { opacity: 1; }
+  body.zen .ui.zen-hide { opacity: 0 !important; pointer-events: none !important; }
+
+  #tooltip {
+    position: fixed;
+    transform: translate(-50%, calc(-100% - 6px));
+    pointer-events: none;
+    font: 12px var(--font);
+    color: var(--ui-text);
+    background: var(--ui-bg);
+    border: 2px solid var(--ui-border);
+    padding: 3px 7px;
+    white-space: nowrap;
+    z-index: 20;
+  }
+  #tt-status { color: var(--ui-accent); }
+  #tt-hint { color: #6f8fb5; font: 10px var(--font-small); margin-top: 2px; }
+  .tt-row { display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+  .tt-bar { width: 60px; height: 6px; background: #0b1a33; border: 1px solid var(--ui-border); }
+  .tt-fill { height: 100%; }
+  .tt-value { font: 10px var(--font-small); }
+
+  #log {
+    position: fixed;
+    left: 12px;
+    top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    pointer-events: none;
+    font: 12px var(--font);
+    z-index: 10;
+  }
+  .log-item {
+    color: var(--ui-text);
+    background: var(--ui-bg);
+    border: 2px solid var(--ui-border);
+    padding: 2px 7px;
+    transition: opacity 0.6s;
+    width: fit-content;
+  }
+
+  #info {
+    position: fixed;
+    right: 14px;
+    top: 12px;
+    font: 12px var(--font);
+    color: var(--ui-dim);
+    text-align: right;
+    pointer-events: none;
+    text-shadow: 0 1px 0 #000;
+    line-height: 1.5;
+    z-index: 10;
+  }
+  #clock { font: 22px var(--font); color: var(--ui-text); opacity: 0.85; }
+
+  /* 아래쪽 도구 상자 */
+  #dock {
+    position: fixed;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    z-index: 15;
+    max-width: calc(100vw - 16px);
+  }
+  #hint {
+    font: 12px var(--font);
+    color: var(--ui-dim);
+    text-shadow: 0 1px 0 #000;
+    pointer-events: none;
+    text-align: center;
+    min-height: 1.2em;
+  }
+  #toolbar {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--ui-bg);
+    border: 2px solid var(--ui-border);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #toolbar .sep { width: 2px; background: #1f3a5e; margin: 2px 2px; }
+  .btn {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 2px solid transparent;
+    background: #0a1a33;
+    color: var(--ui-text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font: 11px var(--font);
+  }
+  .btn canvas { image-rendering: pixelated; width: 24px; height: 24px; pointer-events: none; }
+  .btn:hover { background: #12294d; }
+  .btn.active { border-color: var(--ui-accent); background: #163562; }
+  .btn:focus-visible { outline: 2px solid #fff3a0; outline-offset: 1px; }
+  .btn .key {
+    position: absolute;
+    right: 2px;
+    bottom: 0;
+    font: 9px var(--font-small);
+    color: #6f8fb5;
+  }
+  .btn .badge {
+    position: absolute;
+    left: 2px;
+    top: 0;
+    font: 9px var(--font-small);
+    color: var(--ui-accent);
+  }
+  .btn[data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font: 11px var(--font);
+    color: var(--ui-text);
+    background: var(--ui-bg);
+    border: 2px solid var(--ui-border);
+    padding: 2px 6px;
+    pointer-events: none;
+  }
+
+  /* 호흡 안내 */
+  #breath {
+    position: fixed;
+    left: 50%;
+    top: 18%;
+    transform: translateX(-50%);
+    text-align: center;
+    font: 18px var(--font);
+    color: var(--ui-text);
+    text-shadow: 0 2px 0 rgba(0,0,0,0.6);
+    pointer-events: none;
+    transition: opacity 1s;
+    z-index: 12;
+  }
+  #breath small { display: block; font: 12px var(--font); color: var(--ui-dim); margin-top: 4px; }
+
+  /* 도움말 / 환영 패널 */
+  .panel {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(420px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    overflow: auto;
+    box-sizing: border-box;
+    background: rgba(4, 12, 28, 0.95);
+    border: 2px solid var(--ui-border);
+    color: var(--ui-text);
+    font: 13px/1.7 var(--font);
+    padding: 16px 18px;
+    z-index: 30;
+  }
+  .panel h2 { margin: 0 0 8px; font: 700 16px var(--font); color: #fff3a0; }
+  .panel ul { margin: 6px 0 10px; padding-left: 18px; }
+  .panel li { margin: 2px 0; }
+  .panel kbd {
+    font: 11px var(--font-small);
+    border: 1px solid var(--ui-border);
+    padding: 0 4px;
+    color: var(--ui-accent);
+  }
+  .panel .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
+  .panel button {
+    font: 12px var(--font);
+    color: var(--ui-text);
+    background: #0a1a33;
+    border: 2px solid var(--ui-border);
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .panel button:hover { background: #163562; }
+  .panel button.danger { border-color: #8a3a4a; color: #ffb3c0; }
+
+  #welcome {
+    position: fixed;
+    left: 50%;
+    top: 40%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: var(--ui-text);
+    pointer-events: none;
+    transition: opacity 2s ease;
+    z-index: 25;
+    text-shadow: 0 2px 0 rgba(0,0,0,0.6);
+  }
+  #welcome h1 { font: 700 28px var(--font); margin: 0 0 10px; color: #fff3a0; letter-spacing: 2px; }
+  #welcome p { font: 14px var(--font); margin: 0; color: var(--ui-dim); }
+  #welcome.gone { opacity: 0; }
+
+  #rename {
+    position: fixed;
+    transform: translate(-50%, calc(-100% - 8px));
+    z-index: 40;
+    font: 13px var(--font);
+    color: var(--ui-text);
+    background: var(--ui-bg);
+    border: 2px solid #fff3a0;
+    padding: 4px 6px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  #rename input {
+    font: 13px var(--font);
+    width: 110px;
+    color: var(--ui-text);
+    background: #0a1a33;
+    border: 1px solid var(--ui-border);
+    padding: 2px 4px;
+    outline: none;
+  }
+
+  @media (max-width: 560px) {
+    .btn { width: 34px; height: 34px; }
+    .btn canvas { width: 20px; height: 20px; }
+    .btn .key { display: none; }
+    #clock { font-size: 18px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #fade, #welcome, .ui { transition: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="tank"></canvas>
+<div id="vignette"></div>
+
+<div id="tooltip" hidden>
+  <div id="tt-title"></div>
+  <div id="tt-status" hidden></div>
+  <div id="tt-bars"></div>
+  <div id="tt-hint">더블클릭: 이름 짓기</div>
+</div>
+
+<div id="log" class="ui zen-hide"></div>
+
+<div id="info" class="ui zen-soft">
+  <div id="clock"></div>
+  <div id="stats"></div>
+</div>
+
+<div id="breath" hidden></div>
+
+<div id="dock" class="ui auto-hide zen-hide">
+  <div id="hint"></div>
+  <div id="toolbar" role="toolbar" aria-label="도구"></div>
+</div>
+
+<div id="welcome">
+  <h1>픽셀 아쿠아리움</h1>
+  <p>가만히 바라봐도 좋고, 살며시 손을 내밀어도 좋아요</p>
+</div>
+
+<div id="help" class="panel" hidden>
+  <h2>수조 사용법</h2>
+  <ul>
+    <li><b>먹이</b> <kbd>1</kbd> 클릭한 곳에 먹이를 떨어뜨려요. 물 위를 누르면 퐁당 떨어져요</li>
+    <li><b>거품</b> <kbd>2</kbd> 누르고 있으면 거품이 뽀글뽀글 올라와요</li>
+    <li><b>쓰다듬기</b> <kbd>3</kbd> 물고기 위에서 꾹 누르고 있으면 기뻐해요</li>
+    <li><b>수초 심기</b> <kbd>4</kbd> 모래를 누르면 수초가 자라요. 수초를 누르면 뽑혀요</li>
+    <li>커서를 가만히 두면 물고기와 친해지고, 휘저으면 겁먹어요</li>
+    <li>수면을 커서로 쓸면 물결이 일고, 밤에는 플랑크톤이 빛나요</li>
+    <li>보물상자를 누르면 거품이 나와요 · 달팽이는 바닥의 남은 먹이를 치워요</li>
+    <li>물고기를 더블클릭하면 이름을 지어 줄 수 있어요</li>
+  </ul>
+  <ul>
+    <li><kbd>T</kbd> 시간 (자동 → 낮 → 노을 → 밤)</li>
+    <li><kbd>S</kbd> 소리 (끔 → 물소리 → 물소리+음악)</li>
+    <li><kbd>B</kbd> 호흡 안내 · <kbd>H</kbd> 바라보기 모드 · <kbd>F</kbd> 전체 화면</li>
+  </ul>
+  <div class="row">
+    <button id="reset-btn" class="danger">수조 새로 시작</button>
+    <button id="help-close">닫기</button>
+  </div>
+</div>
+
+<div id="fade"></div>
+<script>
+  // ===== 조절용 상수 =====
+
+  // 체력
+  const STAMINA_MAX = 100;
+  const STAMINA_DRAIN_PER_PX = 0.12; // 1픽셀 헤엄칠 때마다 줄어드는 체력 (아래 성격별 배율이 곱해짐)
+  const STILL_SPEED = 3;             // 이보다 느리면(초당 픽셀) '거의 안 움직임'으로 보고 회복
+  const STAMINA_REGEN_PER_SEC = 6;   // 거의 안 움직일 때 초당 회복량
+  const REST_START_STAMINA = 30;     // 이 아래로 떨어지면 쉬기 시작
+  const REST_END_STAMINA = 70;       // 이 이상 회복되면 다시 헤엄침
+  const FOOD_RESTORE = 10;           // 먹이 하나당 회복량 (성격별 배율이 곱해짐)
+
+  // 자연 먹이(작은 벌레)
+  const BUG_SPAWN_INTERVAL = [6, 14]; // 벌레가 새로 생기는 간격 범위(초)
+  const MAX_BUGS = 4;                 // 동시에 있을 수 있는 벌레 수
+  const BUG_SPEED = 4;                // 평소 꼬물거리며 움직이는 속도(초당 픽셀)
+  const BUG_ESCAPE_SPEED = 10;        // 물고기가 다가오면 달아나는 속도
+  const BUG_ESCAPE_RADIUS = 18;       // 이 거리 안에 물고기가 오면 달아난다
+  const BUG_RESTORE_MUL = 1.5;        // 벌레 회복량 배율 (FOOD_RESTORE에 곱해짐)
+
+  // 휴식
+  const RANDOM_REST_CHANCE = 0.25;   // 성격과 다른 휴식 방식을 고를 확률
+  const REST_TRAVEL_SPEED = 8;       // 바닥/수초로 쉬러 갈 때 속도
+  const FLOAT_SLOWDOWN = 1.5;        // 제자리 휴식 때 감속 정도 (클수록 빨리 멈춤)
+  const CRUISE_RETURN_SPEED = 5;     // 휴식 후 원래 헤엄 높이로 돌아가는 속도
+
+  // 도망
+  const FLEE_BURST_BOOST = 0.8;      // 도망치기 시작할 때 순간 가속 (0.8 = 속도 +80%)
+  const FLEE_BURST_TIME = 0.6;       // 순간 가속이 사라지는 데 걸리는 시간(초)
+  const EXHAUSTED_FLEE_MUL = 0.4;    // 체력이 0일 때 도망 속도 배율
+
+  // 화면 끝
+  const EDGE_WRAP_CHANCE = 0.5;      // 화면 끝에 닿았을 때 밖으로 나가 반대편에서 들어올 확률 (나머지는 돌아섬)
+  const WRAP_MARGIN = 4;             // 화면 밖으로 완전히 사라진 뒤 이만큼 더 가서 반대편으로 넘어간다(픽셀)
+
+  // 수초
+  const PLANT_SWAY = 4;             // 꼭대기가 흔들리는 최대 폭(픽셀)
+  const PLANT_SWAY_SPEED = 1.5;      // 흔들리는 빠르기
+  const PLANT_GROW_TIME = 90;        // 새로 심은 수초가 다 자라기까지(초)
+  const MAX_PLANTS = 14;             // 수조에 심을 수 있는 최대 수초 포기 수
+
+  // 성격 변화
+  // 물고기마다 겁(fear) / 식탐(appetite) / 활력(activity) 세 가지 성향(0~1)이 있고, 성격은 성향으로 정해진다
+  const INTERACT_RADIUS = 60;        // 커서가 이 거리 안에 있어야 성향에 영향을 준다
+  const CURSOR_FAST = 80;            // 커서가 이보다 빠르면(초당 픽셀) 휘젓는 것으로 보고 겁이 늘어난다
+  const CURSOR_CALM = 8;             // 커서가 이보다 느리면 가만히 지켜보는 것으로 보고 겁이 줄어든다
+  const FEAR_GAIN = 0.25;            // 휘저을 때 초당 겁 증가량
+  const CALM_RATE = 0.04;            // 가만히 있을 때 초당 겁 감소량
+  const ACTIVITY_GAIN = 0.05;        // 커서가 움직이며 놀아 줄 때 초당 활력 증가량
+  const CLICK_STARTLE_RADIUS = 24;   // 물고기 바로 옆을 클릭하면 놀란다
+  const CLICK_STARTLE_FEAR = 0.06;
+  const TRUST_PER_FOOD = 0.04;       // 내가 준 먹이를 먹을 때마다 겁이 줄어든다
+  const APPETITE_PER_FOOD = 0.06;    // 배고플 때 먹으면 식탐 증가
+  const OVERFED_STAMINA = 85;        // 이 이상 체력에서 또 먹으면 '과식'
+  const OVERFED_ACTIVITY_LOSS = 0.06; // 과식하면 활력 감소 (느긋해진다)
+  const BUG_APPETITE_GAIN = 0.04;    // 벌레 사냥은 식탐과 활력을 함께 올린다
+  const BUG_ACTIVITY_GAIN = 0.04;
+  const TRAIT_RECOVERY = 0.002;      // 아무 일도 없으면 타고난 성향으로 아주 천천히 돌아간다(초당 비율)
+  const PERSONALITY_MIN_TIME = 3;    // 성격이 바뀐 뒤 이 시간(초) 동안은 다시 안 바뀐다
+  const PERSONALITY_MARGIN = 0.05;   // 경계에서 성격이 깜빡거리지 않게 두는 여유
+
+  // 쓰다듬기
+  const PET_RADIUS = 3;              // 몸 둘레에서 이만큼 바깥까지 눌러도 쓰다듬는 것으로 본다
+  const PET_CALM_RATE = 0.12;        // 쓰다듬는 동안 초당 겁 감소량
+  const PET_HEART_INTERVAL = 0.7;    // 하트가 피어오르는 간격(초)
+  const PET_STAMINA_REGEN = 4;       // 쓰다듬는 동안 추가로 회복되는 체력(초당)
+
+  // 거품 놀이
+  const BUBBLE_TOOL_RATE = 14;       // 거품 도구를 누르고 있을 때 초당 거품 수
+  const BUBBLE_PLAY_RADIUS = 30;     // 이 거리 안의 물고기는 거품 덕분에 활발해진다
+  const BUBBLE_PLAY_GAIN = 0.03;     // 거품 놀이 중 초당 활력 증가량
+
+  // 밤
+  const NIGHT_SPEED_MUL = 0.6;       // 밤에는 헤엄 속도가 이만큼 느려진다
+  const NIGHT_REST_BONUS = 25;       // 밤에는 체력이 이만큼 더 남아 있어도 쉬러 간다
+  const NIGHT_SLEEP_TIME = [15, 40]; // 밤에 잠들면 적어도 이만큼(초)은 잔다
+
+  // 번식
+  const MAX_FISH = 16;               // 수조에 있을 수 있는 최대 물고기 수 (알 포함)
+  const BREED_STAMINA = 75;          // 둘 다 체력이 이 이상이어야 짝을 찾는다 (먹이를 넉넉히 주면 번식한다)
+  const BREED_KEEP_STAMINA = 55;     // 짝이 된 뒤에는 이 아래로 떨어지면 포기
+  const BREED_SEEK_RADIUS = 90;      // 이 거리 안의 짝만 찾는다
+  const BREED_TOUCH_DIST = 10;       // 이만큼 가까이 붙어 있어야 짝짓기가 진행된다
+  const BREED_TIME = 1.5;            // 붙어 있어야 하는 시간(초)
+  const BREED_GIVE_UP_TIME = 20;     // 이 시간 안에 못 만나면 포기
+  const BREED_COOLDOWN = 45;         // 한 번 알을 낳은 뒤 다음 번식까지 시간(초)
+  const BREED_COST = 30;             // 번식에 드는 체력
+  const COURT_SPEED = 10;            // 짝에게 다가가는 속도
+  const EGG_HATCH_TIME = [8, 12];    // 알이 부화하기까지(초)
+  const ADULT_AGE = 60;              // 아기가 다 자라기까지(초)
+  const BABY_SPEED_MUL = 0.8;        // 아기는 조금 느리게 헤엄친다
+  const TRAIT_INHERIT_NOISE = 0.15;  // 아기 성향은 부모 평균에서 이만큼 무작위로 달라진다
+
+  // 성격별 값
+  // speed: 평소 헤엄 속도 범위, chaseSpeed: 먹이 쫓는 속도, reaction: 먹이를 알아채기까지 걸리는 시간(초)
+  // fleeRadius / fleeSpeed: 커서가 이 거리 안에 오면 도망간다
+  // followRadius / followSpeed: 커서가 이 거리 안에서 천천히 움직이면 따라온다
+  // drainMul: 전체 체력 소모 배율, chaseDrainMul / fleeDrainMul: 먹이 쫓기 / 도망칠 때 추가 배율
+  // foodRestoreMul: 먹이 회복량 배율
+  // restStyle: 주로 쉬는 방식 (float = 제자리, bottom = 바닥, plant = 수초, null = 매번 무작위)
+  const PERSONALITIES = {
+    lazy: {
+      label: '느긋함', speed: [4, 7], chaseSpeed: 12, reaction: 2.0,
+      drainMul: 0.5, chaseDrainMul: 1, fleeDrainMul: 1, foodRestoreMul: 1, restStyle: 'float',
+    },
+    timid: {
+      label: '겁 많음', speed: [8, 14], chaseSpeed: 22, reaction: 0.5, fleeRadius: 40, fleeSpeed: 32,
+      drainMul: 1, chaseDrainMul: 1, fleeDrainMul: 2.5, foodRestoreMul: 1, restStyle: 'plant',
+    },
+    glutton: {
+      label: '먹보', speed: [8, 15], chaseSpeed: 36, reaction: 0,
+      drainMul: 1, chaseDrainMul: 2.2, fleeDrainMul: 1, foodRestoreMul: 2.5, restStyle: 'bottom',
+    },
+    friendly: {
+      label: '친근함', speed: [7, 13], chaseSpeed: 24, reaction: 0.3, followRadius: 60, followSpeed: 12,
+      drainMul: 1, chaseDrainMul: 1, fleeDrainMul: 1, foodRestoreMul: 1, restStyle: null,
+    },
+    normal: {
+      label: '보통', speed: [7, 15], chaseSpeed: 24, reaction: 0.4,
+      drainMul: 1, chaseDrainMul: 1, fleeDrainMul: 1, foodRestoreMul: 1, restStyle: null,
+    },
+  };
+
+  // 처음 넣는 물고기들의 성향
+  const TRAIT_PRESETS = {
+    lazy:     { fear: 0.3,  appetite: 0.35, activity: 0.12 },
+    timid:    { fear: 0.78, appetite: 0.35, activity: 0.5 },
+    glutton:  { fear: 0.3,  appetite: 0.82, activity: 0.5 },
+    friendly: { fear: 0.05, appetite: 0.35, activity: 0.5 },
+    normal:   { fear: 0.3,  appetite: 0.35, activity: 0.45 },
+  };
+
+  // ===== 여기부터 구현 =====
+
+  // 내부 해상도: 작게 그린 뒤 CSS로 확대해서 픽셀 느낌을 낸다.
+  // 화면을 꽉 채우도록 창 크기에 맞춰 정해진다 (짧은 변이 180픽셀 안팎)
+  let W = 320;
+  let H = 180;
+  let SCALE = 1;
+  const SAND_H = 12;
+  const SURFACE_Y = 10;              // 수면 높이 (이 위는 공기)
+
+  const canvas = document.getElementById('tank');
+  const ctx = canvas.getContext('2d');
+
+  function rand(min, max) {
+    return min + Math.random() * (max - min);
+  }
+
+  function randInt(min, max) {
+    return Math.floor(rand(min, max + 1));
+  }
+
+  function pick(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
+
+  function clamp01(v) {
+    return Math.max(0, Math.min(1, v));
+  }
+
+  function clamp(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+  }
+
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function hexToRgb(c) {
+    const n = parseInt(c.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+
+  function rgbToHex([r, g, b]) {
+    return '#' + ((Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b)).toString(16).padStart(6, '0');
+  }
+
+  function mixColor(c1, c2, t) {
+    const a = hexToRgb(c1);
+    const b = hexToRgb(c2);
+    return rgbToHex(a.map((v, i) => v * (1 - t) + b[i] * t));
+  }
+
+  // 도트 그림 문자열을 그린다. colors: 글자 → 색, '.'은 투명
+  function drawSprite(rows, x, y, colors, flipX = false) {
+    const w = rows[0].length;
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r];
+      for (let c = 0; c < w; c++) {
+        const ch = row[c];
+        if (ch === '.' || !colors[ch]) continue;
+        ctx.fillStyle = colors[ch];
+        ctx.fillRect(x + (flipX ? w - 1 - c : c), y + r, 1, 1);
+      }
+    }
+  }
+
+  let fishes = [];                   // 수조 속 물고기들 (아래에서 채운다)
+
+  // ===== 시간대 (낮 / 노을 / 밤) =====
+  // tint: 장면 전체에 곱해지는 색, ray: 위에서 내려오는 빛줄기 색, glow: 밤 정도(0~1, 플랑크톤이 빛나는 세기)
+  const LIGHT_PRESETS = {
+    day:    { tint: [255, 255, 255], ray: [255, 246, 205], rayA: 0.075, night: 0,    sky: [120, 190, 255], skyA: 0.10 },
+    sunset: { tint: [255, 200, 178], ray: [255, 160, 95],  rayA: 0.11,  night: 0.3,  sky: [255, 120, 70],  skyA: 0.30 },
+    night:  { tint: [72, 90, 152],   ray: [160, 195, 255], rayA: 0.03,  night: 1,    sky: [90, 120, 220],  skyA: 0.06 },
+  };
+  // 자동 모드: 실제 시각에 맞춰 바뀐다 [시, 시간대]
+  const DAY_KEYS = [
+    [0, 'night'], [5, 'night'], [6.5, 'sunset'], [8, 'day'],
+    [17, 'day'], [18.5, 'sunset'], [20, 'night'], [24, 'night'],
+  ];
+  const TIME_MODES = ['auto', 'day', 'sunset', 'night'];
+  const TIME_MODE_LABELS = { auto: '자동 (실제 시간)', day: '낮', sunset: '노을', night: '밤' };
+  const LIGHT_BLEND_SPEED = 0.35;    // 시간대를 바꿨을 때 빛이 옮겨 가는 빠르기(초당 비율)
+
+  function lerpPreset(a, b, t) {
+    const out = {};
+    for (const k in a) {
+      out[k] = Array.isArray(a[k]) ? a[k].map((v, i) => lerp(v, b[k][i], t)) : lerp(a[k], b[k], t);
+    }
+    return out;
+  }
+
+  function presetForNow() {
+    const d = new Date();
+    const hour = d.getHours() + d.getMinutes() / 60;
+    for (let i = 0; i < DAY_KEYS.length - 1; i++) {
+      const [h0, p0] = DAY_KEYS[i];
+      const [h1, p1] = DAY_KEYS[i + 1];
+      if (hour >= h0 && hour <= h1) {
+        const t = (hour - h0) / (h1 - h0);
+        // 부드럽게 넘어가도록 양 끝을 완만하게
+        return lerpPreset(LIGHT_PRESETS[p0], LIGHT_PRESETS[p1], t * t * (3 - 2 * t));
+      }
+    }
+    return LIGHT_PRESETS.night;
+  }
+
+  const settings = {
+    timeMode: 'auto',
+    sound: 0,          // 0 = 끔, 1 = 물소리, 2 = 물소리 + 음악
+    zen: false,
+  };
+
+  function targetLight() {
+    return settings.timeMode === 'auto' ? presetForNow() : LIGHT_PRESETS[settings.timeMode];
+  }
+
+  let light = lerpPreset(LIGHT_PRESETS.day, targetLight(), 1);
+
+  function updateLight(dt) {
+    light = lerpPreset(light, targetLight(), Math.min(1, dt * LIGHT_BLEND_SPEED));
+  }
+
+  // ===== 수면 (물결 시뮬레이션) =====
+  // 열마다 높이와 속도를 두고, 이웃 열로 퍼지게 해서 물결이 번져 나가게 한다
+  const WAVE_TENSION = 28;           // 제자리로 돌아오려는 힘
+  const WAVE_DAMPING = 2.2;          // 잦아드는 빠르기
+  const WAVE_SPREAD = 260;           // 옆으로 퍼지는 힘
+  const WAVE_MAX = 4;                // 최대 높이(픽셀)
+  let waveH = new Float32Array(W);
+  let waveV = new Float32Array(W);
+  let waveTime = 0;
+
+  function updateWaves(dt) {
+    waveTime += dt;
+    // 안정적으로 계산되도록 작은 단계로 나눠서 진행한다
+    const steps = Math.ceil(dt / (1 / 120));
+    const h = dt / steps;
+    for (let s = 0; s < steps; s++) {
+      for (let i = 0; i < W; i++) {
+        const left = waveH[i > 0 ? i - 1 : i];
+        const right = waveH[i < W - 1 ? i + 1 : i];
+        const acc = -WAVE_TENSION * waveH[i] - WAVE_DAMPING * waveV[i] + WAVE_SPREAD * (left + right - 2 * waveH[i]);
+        waveV[i] += acc * h;
+      }
+      for (let i = 0; i < W; i++) waveH[i] = clamp(waveH[i] + waveV[i] * h, -WAVE_MAX, WAVE_MAX);
+    }
+  }
+
+  // x 근처 수면을 밀어 넣는다 (양수 = 아래로)
+  function disturbSurface(x, amount, radius = 3) {
+    const cx = Math.round(x);
+    for (let i = cx - radius; i <= cx + radius; i++) {
+      if (i < 0 || i >= W) continue;
+      const k = 1 - Math.abs(i - cx) / (radius + 1);
+      waveV[i] += amount * k;
+    }
+  }
+
+  // 잔잔한 기본 물결 + 시뮬레이션 물결
+  function surfaceAt(x) {
+    const i = clamp(Math.round(x), 0, W - 1);
+    const calm = Math.sin(i * 0.09 + waveTime * 0.9) * 0.6 + Math.sin(i * 0.031 - waveTime * 0.5) * 0.5;
+    return SURFACE_Y + Math.round(calm + waveH[i]);
+  }
+
+  // ===== 수조 꾸밈 (배치는 창 크기가 바뀔 때마다 다시 계산) =====
+
+  // 수초: 포기마다 줄기 몇 가닥. 물고기 앞에 그려서 뒤에 숨을 수 있게 한다
+  const PLANT_STRAND_GAP = 4;
+  const PLANT_COLORS = {
+    green: { stem: '#1f6b3a', leaf: '#3fa35a' },
+    lime:  { stem: '#3b7d2a', leaf: '#7cc444' },
+    red:   { stem: '#7a2f3a', leaf: '#c4566a' },
+    teal:  { stem: '#1d6460', leaf: '#3fb09f' },
+  };
+  const DEFAULT_PLANTS = [
+    { fx: 0.125, heights: [34, 46, 28], phase: 0,   color: 'green' },
+    { fx: 0.39,  heights: [24, 32],     phase: 1.7, color: 'green' },
+    { fx: 0.645, heights: [42, 56, 38], phase: 3.1, color: 'green' },
+    { fx: 0.875, heights: [30, 40, 26], phase: 4.4, color: 'green' },
+  ];
+
+  // grow: 0~1 (다 자라면 1)
+  let PLANTS = DEFAULT_PLANTS.map((p) => ({ ...p, heights: [...p.heights], grow: 1 }));
+
+  function plantX(pl) {
+    return Math.round(pl.fx * W);
+  }
+
+  function plantCenterX(pl) {
+    return plantX(pl) + (pl.heights.length - 1) * PLANT_STRAND_GAP / 2 + 1;
+  }
+
+  // 자라는 중이면 지금 높이를 돌려준다
+  function plantHeights(pl) {
+    const g = pl.grow >= 1 ? 1 : 1 - Math.pow(1 - pl.grow, 2);
+    return pl.heights.map((h) => Math.max(2, Math.round(h * g)));
+  }
+
+  function plantTop(pl) {
+    return Math.max(...plantHeights(pl));
+  }
+
+  function nearestPlant(x) {
+    let best = null;
+    for (const pl of PLANTS) {
+      if (!best || Math.abs(plantCenterX(pl) - x) < Math.abs(plantCenterX(best) - x)) best = pl;
+    }
+    return best;
+  }
+
+  // 모래 알갱이, 뒤쪽 풍경, 돌 등은 배치할 때 한 번만 정해 둔다
+  let sandSpecks = [];
+  let backWeeds = [];
+  let ridge = [];
+  let rocks = [];
+  const chest = { x: 0, y: 0, open: 0, opening: false, timer: rand(20, 40), burst: 0 };
+  const bubbler = { x: 0, y: 0 };
+
+  // 돌: 타원 모양에 가장자리를 조금 울퉁불퉁하게, 왼쪽 위에서 빛이 오는 것처럼 칠한다
+  function makeRock(w, h) {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const g = c.getContext('2d');
+    const rx = w / 2;
+    const ry = h;
+    const bumps = [rand(0, 6), rand(0, 6), rand(0, 6)];
+    const tone = pick([['#9aa4b5', '#6c7789', '#4a5363', '#363d4a'], ['#a89a86', '#7b6e5c', '#574d40', '#3d362d'], ['#8fa39a', '#62776d', '#45564e', '#313d37']]);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const dx = (x + 0.5 - rx) / rx;
+        const dy = (h - y - 0.5) / ry;
+        const edge = 1 + 0.08 * Math.sin(x * 0.9 + bumps[0]) + 0.06 * Math.sin(x * 0.4 + bumps[1]);
+        if (dx * dx + dy * dy > edge) continue;
+        const shade = -dx * 0.6 + dy * 0.9 + 0.12 * Math.sin(x * 1.7 + y * 2.3 + bumps[2]);
+        const idx = shade > 0.75 ? 0 : shade > 0.25 ? 1 : shade > -0.2 ? 2 : 3;
+        g.fillStyle = tone[idx];
+        g.fillRect(x, y, 1, 1);
+      }
+    }
+    return c;
+  }
+
+  function layoutScene() {
+    const sandTop = H - SAND_H;
+
+    sandSpecks = [];
+    for (let i = 0; i < W * 0.3; i++) {
+      sandSpecks.push({
+        x: Math.floor(rand(0, W)),
+        y: sandTop + 2 + Math.floor(rand(0, SAND_H - 2)),
+        color: pick(['#a8865a', '#e0c592', '#b89a6a', '#e8d2a2']),
+      });
+    }
+
+    // 멀리 보이는 언덕 능선
+    ridge = [];
+    const p1 = rand(0, 6);
+    const p2 = rand(0, 6);
+    for (let x = 0; x < W; x++) {
+      ridge.push(Math.round(10 + Math.sin(x * 0.02 + p1) * 6 + Math.sin(x * 0.055 + p2) * 3));
+    }
+
+    // 뒤쪽 어두운 수초 (흐릿하게, 천천히 흔들림)
+    backWeeds = [];
+    const count = Math.round(W / 22);
+    for (let i = 0; i < count; i++) {
+      backWeeds.push({ x: Math.round(rand(0, W)), h: Math.round(rand(14, 40)), phase: rand(0, 6) });
+    }
+
+    rocks = [
+      { fx: 0.25, w: 22, h: 10 },
+      { fx: 0.27, w: 11, h: 6, dx: 9 },
+      { fx: 0.8, w: 16, h: 8 },
+      { fx: 0.045, w: 13, h: 7 },
+    ].map((r) => ({ ...r, img: makeRock(r.w, r.h) }));
+
+    chest.x = Math.round(W * 0.71) - 6;
+    chest.y = sandTop - 9;
+    bubbler.x = Math.round(W * 0.955);
+    bubbler.y = sandTop - 1;
+
+    waveH = new Float32Array(W);
+    waveV = new Float32Array(W);
+  }
+
+  function resize() {
+    const iw = window.innerWidth;
+    const ih = window.innerHeight;
+    // 짧은 변이 180픽셀 안팎이 되도록 정수 배율을 고른다
+    SCALE = Math.max(1, Math.round(Math.min(iw, ih) / 180));
+    W = Math.max(160, Math.ceil(iw / SCALE));
+    H = Math.max(120, Math.ceil(ih / SCALE));
+    canvas.width = W;
+    canvas.height = H;
+    canvas.style.width = W * SCALE + 'px';
+    canvas.style.height = H * SCALE + 'px';
+    ctx.imageSmoothingEnabled = false;
+    layoutScene();
+    for (const f of fishes) clampFish(f);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // ===== 물고기 =====
+
+  function makeShape(rows) {
+    const eyeRow = rows.findIndex((row) => row.includes('3'));
+    // 꼬리(2)가 끝나는 열: 이 앞쪽만 살랑살랑 흔든다
+    let tailEnd = 0;
+    rows.forEach((row) => { tailEnd = Math.max(tailEnd, row.lastIndexOf('2') + 1); });
+    return { rows, w: rows[0].length, h: rows.length, eyeRow, eyeCol: rows[eyeRow].indexOf('3'), tailEnd };
+  }
+
+  // 오른쪽을 바라보는 물고기 도트 맵
+  // . = 빈칸, 1 = 몸통, 2 = 꼬리, 3 = 눈, 4 = 배
+  const FISH_SHAPE = makeShape([
+    '.....111...',
+    '2...111111.',
+    '22.11111311',
+    '22211111111',
+    '22.11114441',
+    '2...111111.',
+    '.....111...',
+  ]);
+  // 갓 태어난 아기 물고기
+  const FRY_SHAPE = makeShape([
+    '...111..',
+    '2.111131',
+    '22111111',
+    '2.111441',
+    '...111..',
+  ]);
+  const TURN_RATE = 5; // 초당 회전 각도(라디안)
+  const TAIL_WAG = 0.9; // 꼬리가 흔들리는 폭(칸)
+
+  const REST_STYLES = ['float', 'bottom', 'plant'];
+  const REST_STYLE_LABELS = { float: '제자리', bottom: '바닥', plant: '수초' };
+
+  const FISH_DEFS = [
+    { name: '코랄', personality: 'glutton', palette: { 1: '#f28c28', 2: '#c65f12', 3: '#1a1a1a', 4: '#ffd08a' } }, // 주황
+    { name: '버터', personality: 'lazy',    palette: { 1: '#f5d442', 2: '#c9a51c', 3: '#1a1a1a', 4: '#fff2a8' } }, // 노랑
+    { name: '모모', personality: 'timid',   palette: { 1: '#f27aa8', 2: '#c44f7d', 3: '#1a1a1a', 4: '#ffc4dc' } }, // 분홍
+    { name: '민트', personality: 'timid',   palette: { 1: '#3cc6c4', 2: '#22908f', 3: '#1a1a1a', 4: '#a8f0ee' } }, // 청록
+    { name: '콩이', personality: 'normal',  palette: { 1: '#8fd14f', 2: '#5f9a2c', 3: '#1a1a1a', 4: '#d2f5a8' } }, // 연두
+  ];
+
+  function rollSpeed(f) {
+    return rand(...f.p.speed) * (f.baby ? BABY_SPEED_MUL : 1);
+  }
+
+  function swimTop() {
+    return SURFACE_Y + 4;
+  }
+
+  function swimBottom(h) {
+    return H - SAND_H - h;
+  }
+
+  // def: name, palette, traits, 그리고 아기일 때 baby / x / baseY
+  function createFish(def) {
+    const baby = !!def.baby;
+    const shape = baby ? FRY_SHAPE : FISH_SHAPE;
+    const size = def.size ?? (baby ? 1 : Math.random() < 0.5 ? 1 : 2); // 칸 하나의 픽셀 크기
+    const w = shape.w * size;
+    const h = shape.h * size;
+    const baseY = def.baseY ?? rand(swimTop() + 6, swimBottom(h) - 10);
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    const f = {
+      name: def.name,
+      palette: def.palette,
+      shape,
+      size,
+      w,
+      h,
+      x: def.x ?? rand(0, W - w),
+      y: baseY,
+      baseY,
+      dir,                      // 이동할 때 쓰는 좌우 방향
+      angle: dir === 1 ? 0 : Math.PI, // 그릴 때 머리가 향하는 각도
+      flipped: dir === -1,      // 왼쪽을 향할 때 위아래를 뒤집어 배가 아래로 오게 한다
+      baby,
+      age: def.age ?? 0,
+      traits: { ...def.traits },
+      nature: { ...(def.nature ?? def.traits) }, // 타고난 성향: 시간이 지나면 천천히 이쪽으로 돌아온다
+      personalityTimer: 0,
+      alertTime: 0,             // 먹이가 생긴 뒤 지난 시간
+      fleeing: false,
+      fleeBurst: 0,             // 도망 순간 가속 남은 양 (1 → 0)
+      stamina: def.stamina ?? (baby ? 60 : rand(50, STAMINA_MAX)),
+      rest: null,               // 쉬는 중이면 { style, target, drift }
+      cruiseY: baby ? rand(swimTop() + 6, swimBottom(h) - 10) : null, // 휴식 후 돌아갈 헤엄 높이
+      partner: null,            // 짝짓기 상대
+      mateTimer: 0,
+      courtTime: 0,
+      heartTimer: 0,
+      breedCooldown: baby ? 0 : rand(5, 20),
+      mode: 'wander',
+      bobScale: 1,              // 쉴 때는 출렁임을 줄인다
+      bobPhase: rand(0, Math.PI * 2),
+      bobSpeed: rand(1, 2.5),
+      bobAmp: rand(1.5, 4),
+      turnTimer: rand(3, 10),   // 다음 무작위 방향 전환까지 남은 시간(초)
+      tailPhase: rand(0, Math.PI * 2),
+      tailSpeed: 0,             // 꼬리 흔드는 빠르기 (헤엄 속도를 따라간다)
+      moveSpeed: 0,             // 이번 프레임 실제 이동 속도(초당 픽셀)
+      blowTimer: rand(6, 20),   // 다음에 입으로 거품을 뽀글 뱉을 때까지
+      sleepTimer: rand(1, 3),   // 밤에 쉬는 중이면 'z'를 띄우는 간격
+      petTime: 0,               // 쓰다듬어 준 시간 (하트 간격용)
+    };
+    f.personality = def.personality ?? pickPersonality(f);
+    f.p = PERSONALITIES[f.personality];
+    f.speed = rollSpeed(f);    // 초당 픽셀
+    return f;
+  }
+
+  function newStartingFishes() {
+    return FISH_DEFS.map((def) => {
+      const traits = {};
+      for (const [k, v] of Object.entries(TRAIT_PRESETS[def.personality])) traits[k] = clamp01(v + rand(-0.04, 0.04));
+      return createFish({ ...def, traits });
+    });
+  }
+
+  // ===== 먹이 =====
+  function foodFloor() {
+    return H - SAND_H - 1;           // 먹이가 멈추는 높이(모래 위)
+  }
+  const SINK_SPEED = 8;              // 가라앉는 속도(초당 픽셀)
+  const AIR_GRAVITY = 220;           // 물 위에서 떨어질 때 중력(초당 픽셀²)
+  const FLOOR_FOOD_LIFE = 120;       // 바닥에 가라앉은 먹이가 녹아 없어지기까지(초)
+  const MAX_FOOD = 30;
+  const EAT_DIST = 4;
+  const foods = [];
+  const eggs = [];
+  const particles = [];
+
+  // 커서 위치(내부 해상도 좌표). 캔버스 밖이면 null
+  let mouse = null;
+  let prevMouse = null;
+  let mouseSpeed = 0; // 부드럽게 만든 커서 속도(초당 픽셀)
+  let mouseVel = { x: 0, y: 0 };
+
+  function dropFood(x, y) {
+    if (foods.length >= MAX_FOOD) {
+      const i = foods.findIndex((f) => f.kind !== 'bug');
+      if (i >= 0) foods.splice(i, 1);
+    }
+    const inAir = y < surfaceAt(x);
+    foods.push({
+      x0: x,
+      x,
+      y: inAir ? y : Math.min(y, foodFloor()),
+      vy: 0,
+      inAir,
+      floorTime: 0,
+      swayPhase: rand(0, Math.PI * 2),
+      tone: Math.random() < 0.5 ? 0 : 1,
+    });
+    if (!inAir) {
+      emitBubble(x, y, 1, rand(-2, 2));
+      sfx('plip');
+    }
+  }
+
+  function updateMouseSpeed(dt) {
+    if (mouse && prevMouse && dt > 0) {
+      const vx = (mouse.x - prevMouse.x) / dt;
+      const vy = (mouse.y - prevMouse.y) / dt;
+      const s = Math.hypot(vx, vy);
+      mouseSpeed += (s - mouseSpeed) * Math.min(1, dt * 10);
+      mouseVel.x += (vx - mouseVel.x) * Math.min(1, dt * 10);
+      mouseVel.y += (vy - mouseVel.y) * Math.min(1, dt * 10);
+    } else {
+      mouseSpeed = 0;
+      mouseVel.x = mouseVel.y = 0;
+    }
+    prevMouse = mouse ? { ...mouse } : null;
+  }
+
+  // 벌레: 수초 근처에서 저절로 생겨나 물속을 꼬물꼬물 돌아다닌다
+  let bugTimer = rand(...BUG_SPAWN_INTERVAL);
+
+  function spawnBug() {
+    if (!PLANTS.length) return;
+    const pl = pick(PLANTS);
+    const top = Math.max(swimTop() + 4, H - SAND_H - plantTop(pl));
+    foods.push({
+      kind: 'bug',
+      x: plantCenterX(pl) + rand(-6, 6),
+      y: rand(top, foodFloor() - 4),
+      vx: 0,
+      vy: 0,
+      turnTimer: 0,
+      wigglePhase: rand(0, Math.PI * 2),
+      age: 0,
+    });
+  }
+
+  function updateBug(bug, dt) {
+    bug.age += dt;
+    bug.wigglePhase += dt * 12;
+
+    // 가장 가까운 물고기가 가까우면 반대쪽으로 달아난다
+    let threat = null;
+    let threatDist = BUG_ESCAPE_RADIUS;
+    for (const f of fishes) {
+      const c = centerOf(f);
+      const d = Math.hypot(bug.x - c.x, bug.y - c.y);
+      if (d < threatDist) {
+        threatDist = d;
+        threat = c;
+      }
+    }
+
+    if (threat) {
+      const dx = bug.x - threat.x;
+      const dy = bug.y - threat.y;
+      const d = Math.hypot(dx, dy) || 1;
+      bug.vx = dx / d * BUG_ESCAPE_SPEED;
+      bug.vy = dy / d * BUG_ESCAPE_SPEED;
+    } else {
+      bug.turnTimer -= dt;
+      if (bug.turnTimer <= 0) {
+        const a = rand(0, Math.PI * 2);
+        bug.vx = Math.cos(a) * BUG_SPEED;
+        bug.vy = Math.sin(a) * BUG_SPEED;
+        bug.turnTimer = rand(0.5, 2);
+      }
+    }
+
+    // 꼬물거림: 진행 방향에 수직으로 살짝 흔들린다
+    bug.x += bug.vx * dt;
+    bug.y += bug.vy * dt + Math.sin(bug.wigglePhase) * 0.15;
+
+    // 물 밖으로 나가지 않게 벽에 닿으면 튕긴다
+    if (bug.x < 2 || bug.x > W - 2) {
+      bug.vx = -bug.vx;
+      bug.x = clamp(bug.x, 2, W - 2);
+    }
+    if (bug.y < swimTop() + 2 || bug.y > foodFloor() - 1) {
+      bug.vy = -bug.vy;
+      bug.y = clamp(bug.y, swimTop() + 2, foodFloor() - 1);
+    }
+  }
+
+  function updateFoods(dt) {
+    bugTimer -= dt;
+    if (bugTimer <= 0) {
+      if (foods.filter((f) => f.kind === 'bug').length < MAX_BUGS) spawnBug();
+      bugTimer = rand(...BUG_SPAWN_INTERVAL);
+    }
+
+    for (let i = foods.length - 1; i >= 0; i--) {
+      const food = foods[i];
+      if (food.kind === 'bug') {
+        updateBug(food, dt);
+      } else if (food.inAir) {
+        // 물 위에서는 툭 떨어지다가 수면에 닿으면 퐁당
+        food.vy += AIR_GRAVITY * dt;
+        food.y += food.vy * dt;
+        const sy = surfaceAt(food.x);
+        if (food.y >= sy) {
+          food.inAir = false;
+          food.y = sy + 1;
+          disturbSurface(food.x, Math.min(40, food.vy * 0.35), 2);
+          splash(food.x, sy, 4);
+          emitBubble(food.x, sy + 3, 1, rand(-2, 2));
+          sfx('plop');
+        }
+      } else if (food.y < foodFloor()) {
+        food.y = Math.min(food.y + SINK_SPEED * dt, foodFloor());
+        // 가라앉으면서 좌우로 살짝 흔들린다
+        food.swayPhase += dt * 2;
+        food.x = food.x0 + Math.sin(food.swayPhase) * 1.5;
+      } else {
+        // 바닥에 오래 남으면 녹아서 사라진다
+        food.floorTime += dt;
+        if (food.floorTime > FLOOR_FOOD_LIFE) foods.splice(i, 1);
+      }
+    }
+  }
+
+  function drawFoods() {
+    for (const food of foods) {
+      const x = Math.round(food.x) - 1;
+      const y = Math.round(food.y) - 1;
+      if (food.kind === 'bug') {
+        drawBug(food, x, y);
+        continue;
+      }
+      // 녹아 없어지기 직전에는 깜빡인다
+      if (food.floorTime > FLOOR_FOOD_LIFE - 3 && Math.floor(food.floorTime * 6) % 2 === 0) continue;
+      ctx.fillStyle = food.tone ? '#9a6430' : '#8b5a2b';
+      ctx.fillRect(x, y, 2, 2);
+      ctx.fillStyle = food.tone ? '#d9a05a' : '#c48a4a';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+
+  // 3픽셀짜리 몸통 + 번갈아 파닥이는 다리 한 쌍
+  function drawBug(bug, x, y) {
+    // 막 생겨났을 때는 깜빡이며 나타난다
+    if (bug.age < 0.6 && Math.floor(bug.age * 10) % 2 === 0) return;
+    const flip = Math.sin(bug.wigglePhase) > 0;
+    ctx.fillStyle = '#2e2a1e';
+    ctx.fillRect(x, y, 3, 1);
+    ctx.fillStyle = '#6b8f3a';
+    ctx.fillRect(bug.vx >= 0 ? x + 2 : x, y, 1, 1); // 머리
+    ctx.fillStyle = '#4a4430';
+    ctx.fillRect(x + 1, flip ? y - 1 : y + 1, 1, 1);
+  }
+
+  function centerOf(f) {
+    return { x: f.x + f.w / 2, y: f.y + f.h / 2 };
+  }
+
+  // 물고기 입 위치: 몸 중심에서 머리가 향한 각도로 몸길이 절반만큼 앞
+  function mouthOf(f) {
+    const c = centerOf(f);
+    return {
+      x: c.x + Math.cos(f.angle) * f.w / 2,
+      y: c.y + Math.sin(f.angle) * f.w / 2,
+    };
+  }
+
+  // 화면 좌우가 이어져 있으므로, x가 오갈 수 있는 한 바퀴의 길이
+  function wrapLength(f) {
+    return W + f.w + WRAP_MARGIN * 2;
+  }
+
+  // 오른쪽으로 가는 길과 화면 밖으로 돌아가는 길 중 짧은 쪽의 x 차이
+  function wrapDx(f, dx) {
+    const L = wrapLength(f);
+    return ((dx + L / 2) % L + L) % L - L / 2;
+  }
+
+  // 완전히 화면 밖으로 나가면 반대편 바깥으로 옮긴다
+  function wrapX(f) {
+    const L = wrapLength(f);
+    if (f.x > W + WRAP_MARGIN) f.x -= L;
+    else if (f.x < -f.w - WRAP_MARGIN) f.x += L;
+  }
+
+  function nearestFood(f) {
+    const cx = f.x + f.w / 2;
+    const cy = f.y + f.h / 2;
+    let best = null;
+    let bestDist = Infinity;
+    for (const food of foods) {
+      if (food.inAir) continue;
+      const d = Math.hypot(wrapDx(f, food.x - cx), food.y - cy);
+      if (d < bestDist) {
+        bestDist = d;
+        best = food;
+      }
+    }
+    return best;
+  }
+
+  // 목표 지점(몸 중심 기준)으로 speed만큼 다가간다. keep 거리 안이면 멈춘다
+  function moveToward(f, dx, dy, speed, dt, keep = 0) {
+    if (dx > 2) f.dir = 1;
+    else if (dx < -2) f.dir = -1;
+    const dist = Math.hypot(dx, dy);
+    if (dist > keep + 0.5) {
+      const step = Math.min(speed * dt, dist - keep);
+      f.x += dx / dist * step;
+      f.baseY += dy / dist * step;
+    }
+    clampFish(f);
+  }
+
+  function chaseFood(f, food, dt) {
+    // 몸 중심을 먹이 쪽으로 움직이면 머리도 자연스럽게 먹이를 향한다
+    // 화면 밖으로 돌아가는 편이 가까우면 그쪽으로 간다
+    const dx = wrapDx(f, food.x - (f.x + f.w / 2));
+    const dy = food.y - (f.baseY + f.h / 2);
+    moveToward(f, dx, dy, f.p.chaseSpeed * (f.baby ? BABY_SPEED_MUL : 1), dt);
+  }
+
+  // 좌우는 화면 밖으로 넘어갈 수 있으므로 위아래만 막는다
+  function clampFish(f) {
+    f.baseY = clamp(f.baseY, swimTop(), swimBottom(f.h) + 2);
+  }
+
+  function shouldFlee(f) {
+    if (!f.p.fleeRadius || !mouse) {
+      f.fleeing = false;
+      return false;
+    }
+    const d = Math.hypot(f.x + f.w / 2 - mouse.x, f.y + f.h / 2 - mouse.y);
+    // 한번 도망치기 시작하면 조금 더 멀어질 때까지 계속 도망간다
+    const limit = f.fleeing ? f.p.fleeRadius * 1.3 : f.p.fleeRadius;
+    const wasFleeing = f.fleeing;
+    f.fleeing = d < limit;
+    if (f.fleeing && !wasFleeing) {
+      f.fleeBurst = 1; // 놀란 순간 확 빨라진다
+      emit('bang', f.x + f.w / 2, f.y - 2);
+    }
+    return f.fleeing;
+  }
+
+  function flee(f, dt) {
+    const dx = f.x + f.w / 2 - mouse.x;
+    const dy = f.baseY + f.h / 2 - mouse.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    if (dx > 1) f.dir = 1;
+    else if (dx < -1) f.dir = -1;
+    const boost = 1 + FLEE_BURST_BOOST * f.fleeBurst;
+    const tired = f.stamina <= 0 ? EXHAUSTED_FLEE_MUL : 1;
+    f.fleeBurst = Math.max(0, f.fleeBurst - dt / FLEE_BURST_TIME);
+    const step = f.p.fleeSpeed * boost * tired * dt;
+    f.x += dx / dist * step;
+    f.baseY += dy / dist * step;
+    clampFish(f);
+  }
+
+  // 친근한 물고기는 천천히 움직이는 커서 곁으로 다가온다
+  function shouldFollow(f) {
+    if (!f.p.followRadius || !mouse || mouseSpeed > CURSOR_FAST || mouse.y < swimTop()) return false;
+    const c = centerOf(f);
+    return Math.hypot(c.x - mouse.x, c.y - mouse.y) < f.p.followRadius;
+  }
+
+  function follow(f, dt) {
+    const dx = mouse.x - (f.x + f.w / 2);
+    const dy = mouse.y - (f.baseY + f.h / 2);
+    moveToward(f, dx, dy, f.p.followSpeed, dt, f.w / 2 + 4);
+  }
+
+  function court(f, dt) {
+    const g = f.partner;
+    const dx = wrapDx(f, (g.x + g.w / 2) - (f.x + f.w / 2));
+    const dy = (g.baseY + g.h / 2) - (f.baseY + f.h / 2);
+    moveToward(f, dx, dy, COURT_SPEED, dt, BREED_TOUCH_DIST * 0.5);
+  }
+
+  // 먹이에 따라 성향이 바뀐다
+  function feedTraits(f, food) {
+    const t = f.traits;
+    if (food.kind === 'bug') {
+      t.appetite += BUG_APPETITE_GAIN;
+      t.activity += BUG_ACTIVITY_GAIN;
+    } else {
+      t.fear -= TRUST_PER_FOOD; // 내가 준 먹이 → 사람을 덜 무서워한다
+      if (f.stamina > OVERFED_STAMINA) {
+        t.activity -= OVERFED_ACTIVITY_LOSS; // 배부른데 또 먹으면 늘어진다
+        t.appetite += APPETITE_PER_FOOD / 3;
+      } else {
+        t.appetite += APPETITE_PER_FOOD;
+      }
+    }
+    for (const k in t) t[k] = clamp01(t[k]);
+  }
+
+  function eatFoods() {
+    for (const f of fishes) {
+      const mouth = mouthOf(f);
+      const center = centerOf(f);
+      for (let i = foods.length - 1; i >= 0; i--) {
+        const food = foods[i];
+        if (food.inAir) continue;
+        // 입에 닿거나, 먹이가 몸 한가운데까지 들어오면 먹은 것으로 본다
+        if (Math.hypot(food.x - mouth.x, food.y - mouth.y) < EAT_DIST + f.size * 2 ||
+            Math.hypot(food.x - center.x, food.y - center.y) < f.w / 2) {
+          foods.splice(i, 1);
+          feedTraits(f, food);
+          const restore = FOOD_RESTORE * f.p.foodRestoreMul * (food.kind === 'bug' ? BUG_RESTORE_MUL : 1);
+          f.stamina = Math.min(STAMINA_MAX, f.stamina + restore);
+          stats.eaten++;
+          sfx('eat');
+          if (Math.random() < 0.35) emitBubble(mouth.x, mouth.y, 1, 0);
+        }
+      }
+    }
+  }
+
+  // 커서가 어떻게 움직이느냐에 따라 성향이 바뀐다
+  function updateTraits(f, dt) {
+    const t = f.traits;
+    for (const k in t) t[k] += (f.nature[k] - t[k]) * TRAIT_RECOVERY * dt;
+
+    if (mouse && mouse.y > SURFACE_Y) {
+      const c = centerOf(f);
+      const d = Math.hypot(c.x - mouse.x, c.y - mouse.y);
+      if (d < INTERACT_RADIUS) {
+        const near = 1 - d / INTERACT_RADIUS;
+        if (mouseSpeed > CURSOR_FAST) {
+          // 휘저으면 겁먹는다 (빠를수록 더)
+          t.fear += FEAR_GAIN * near * Math.min(3, mouseSpeed / CURSOR_FAST) * dt;
+          t.activity += ACTIVITY_GAIN * near * dt;
+        } else if (mouseSpeed > CURSOR_CALM) {
+          // 적당히 움직이며 놀아 주면 활발해진다
+          t.activity += ACTIVITY_GAIN * near * dt;
+        } else {
+          // 가만히 지켜보면 조금씩 경계를 푼다 (멀리 있어도 약하게 효과가 있다)
+          t.fear -= CALM_RATE * (0.4 + 0.6 * near) * dt;
+        }
+      }
+    }
+    // 거품을 뿜어 주면 근처 물고기가 신나 한다
+    if (bubbleToolActive && mouse) {
+      const c = centerOf(f);
+      if (Math.hypot(c.x - mouse.x, c.y - mouse.y) < BUBBLE_PLAY_RADIUS) t.activity += BUBBLE_PLAY_GAIN * dt;
+    }
+    for (const k in t) t[k] = clamp01(t[k]);
+  }
+
+  // 성향으로 성격을 정한다: 기준을 가장 많이 넘은 성향이 이긴다.
+  // 지금 성격에는 여유를 더 줘서 경계에서 왔다 갔다 하지 않게 한다
+  function pickPersonality(f) {
+    const t = f.traits;
+    const scores = {
+      timid: t.fear - 0.6,
+      friendly: 0.12 - t.fear,
+      glutton: t.appetite - 0.65,
+      lazy: 0.25 - t.activity,
+      normal: 0,
+    };
+    if (f.personality) scores[f.personality] += PERSONALITY_MARGIN;
+    let best = 'normal';
+    for (const key in scores) if (scores[key] > scores[best]) best = key;
+    return best;
+  }
+
+  function updatePersonality(f, dt) {
+    f.personalityTimer = Math.max(0, f.personalityTimer - dt);
+    if (f.personalityTimer > 0) return;
+    const next = pickPersonality(f);
+    if (next === f.personality) return;
+    const before = f.p.label;
+    f.personality = next;
+    f.p = PERSONALITIES[next];
+    f.speed = rollSpeed(f);
+    f.fleeing = false;
+    f.personalityTimer = PERSONALITY_MIN_TIME;
+    const c = centerOf(f);
+    emit(next === 'timid' ? 'bang' : next === 'friendly' ? 'heart' : 'spark', c.x, f.y - 3);
+    log(`${f.name}: ${before} → ${f.p.label}`);
+  }
+
+  // 지금 쓰다듬고 있는 물고기 (쓰다듬기 도구로 누르고 있을 때만)
+  let petted = null;
+
+  function findPetted() {
+    if (tool !== 'pet' || !pointerDown || !mouse) return null;
+    let best = null;
+    let bestDist = Infinity;
+    for (const f of fishes) {
+      const c = centerOf(f);
+      const d = Math.hypot(mouse.x - c.x, mouse.y - c.y);
+      if (d < f.w / 2 + PET_RADIUS + 1 && d < bestDist && !f.fleeing) {
+        best = f;
+        bestDist = d;
+      }
+    }
+    return best;
+  }
+
+  // 쓰다듬는 동안: 커서 쪽으로 몸을 돌리고 가만히 기분 좋게 떠 있는다
+  function bePetted(f, dt) {
+    const c = centerOf(f);
+    if (mouse.x > c.x + 1) f.dir = 1;
+    else if (mouse.x < c.x - 1) f.dir = -1;
+    // 커서 쪽으로 아주 살짝 다가온다
+    moveToward(f, mouse.x - c.x, mouse.y - (f.baseY + f.h / 2), 3, dt, f.w / 2);
+    f.traits.fear = clamp01(f.traits.fear - PET_CALM_RATE * dt);
+    f.stamina = Math.min(STAMINA_MAX, f.stamina + PET_STAMINA_REGEN * dt);
+    f.petTime += dt;
+    if (f.petTime >= PET_HEART_INTERVAL) {
+      f.petTime = 0;
+      emit('heart', c.x + rand(-3, 3), f.y - 2);
+      sfx('pet');
+      stats.pets++;
+    }
+  }
+
+  function nightness() {
+    return light.night;
+  }
+
+  function updateFish(f, dt) {
+    const prevX = f.x;
+    const prevBaseY = f.baseY;
+
+    f.age += dt;
+    if (f.baby && f.age >= ADULT_AGE) growUp(f);
+    updateTraits(f, dt);
+    updatePersonality(f, dt);
+
+    const food = nearestFood(f);
+    if (food) f.alertTime += dt;
+    else f.alertTime = 0;
+
+    // 밤에는 더 일찍 쉬러 간다
+    const restStart = REST_START_STAMINA + NIGHT_REST_BONUS * nightness();
+    if (!f.rest && f.stamina < restStart && f !== petted) startRest(f);
+    else if (f.rest && f.stamina >= REST_END_STAMINA && f.rest.t >= f.rest.minTime) endRest(f);
+    if (f.rest) f.rest.t += dt;
+
+    // 우선순위: 도망 > 쓰다듬기 > 휴식 > 먹이 쫓기 > 커서 따라가기 > 짝에게 가기 > 평소 헤엄
+    let mode;
+    if (shouldFlee(f)) {
+      flee(f, dt);
+      mode = 'flee';
+    } else if (f === petted) {
+      bePetted(f, dt);
+      mode = 'pet';
+    } else if (f.rest) {
+      rest(f, dt);
+      mode = 'rest';
+    } else if (food && f.alertTime >= f.p.reaction) {
+      chaseFood(f, food, dt);
+      mode = 'chase';
+    } else if (shouldFollow(f)) {
+      follow(f, dt);
+      mode = 'follow';
+    } else if (f.partner) {
+      court(f, dt);
+      mode = 'court';
+    } else {
+      wander(f, dt);
+      mode = 'wander';
+    }
+    f.mode = mode;
+
+    const mx = f.x - prevX;
+    const my = f.baseY - prevBaseY;
+    const moved = Math.hypot(mx, my);
+    f.moveSpeed = dt > 0 ? moved / dt : 0;
+    updateStamina(f, moved, dt, mode);
+    turnToward(f, mx, my, dt);
+    // 이동량과 방향을 계산한 뒤에 넘겨야 순간이동이 이동으로 잡히지 않는다
+    wrapX(f);
+
+    // 꼬리: 빨리 헤엄칠수록 빠르게, 쉴 때는 느릿느릿
+    const wagTarget = 1.2 + Math.min(f.moveSpeed, 40) * 0.35 + (mode === 'pet' ? 5 : 0);
+    f.tailSpeed += (wagTarget - f.tailSpeed) * Math.min(1, dt * 3);
+    f.tailPhase += f.tailSpeed * dt;
+
+    // 위아래로 살짝 출렁이기 (쉴 때는 더 잔잔하게)
+    const bobTarget = mode === 'pet' ? 0.3 : !f.rest ? 1 : f.rest.style === 'float' ? 0.6 : 0.3;
+    f.bobScale += (bobTarget - f.bobScale) * Math.min(1, dt * 2);
+    f.bobPhase += f.bobSpeed * dt;
+    f.y = f.baseY + Math.sin(f.bobPhase) * f.bobAmp * f.bobScale;
+
+    // 가끔 입으로 거품을 뽀글
+    f.blowTimer -= dt;
+    if (f.blowTimer <= 0) {
+      const m = mouthOf(f);
+      const n = randInt(1, 3);
+      for (let i = 0; i < n; i++) emitBubble(m.x, m.y - i * 2, 1, rand(-1, 1));
+      f.blowTimer = rand(8, 25);
+    }
+
+    // 밤에 쉬고 있으면 꾸벅꾸벅 졸며 'z'를 띄운다
+    if (f.rest && nightness() > 0.6) {
+      f.sleepTimer -= dt;
+      if (f.sleepTimer <= 0) {
+        emit('zzz', f.x + f.w / 2 + f.dir * 2, f.y - 1);
+        f.sleepTimer = rand(2, 4);
+      }
+    }
+  }
+
+  // 이동 속도에 비례해 소모, 거의 멈춰 있으면 회복
+  function updateStamina(f, moved, dt, mode) {
+    if (dt <= 0) return;
+    if (moved / dt < STILL_SPEED) {
+      f.stamina += STAMINA_REGEN_PER_SEC * dt;
+    } else {
+      let mul = f.p.drainMul;
+      if (mode === 'chase') mul *= f.p.chaseDrainMul;
+      if (mode === 'flee') mul *= f.p.fleeDrainMul;
+      f.stamina -= moved * STAMINA_DRAIN_PER_PX * mul;
+    }
+    f.stamina = clamp(f.stamina, 0, STAMINA_MAX);
+  }
+
+  function clampX(f, x) {
+    return clamp(x, 0, W - f.w);
+  }
+
+  function startRest(f) {
+    // 성격대로 고르되, 가끔은(또는 선호가 없으면) 다른 방식을 고른다
+    let style = f.p.restStyle;
+    if (!style || Math.random() < RANDOM_REST_CHANCE) {
+      const others = REST_STYLES.filter((s) => s !== style);
+      style = pick(others);
+    }
+    if (style === 'plant' && !PLANTS.length) style = 'bottom';
+
+    // 밤에는 한번 잠들면 한동안 푹 잔다
+    const minTime = nightness() > 0.6 ? rand(NIGHT_SLEEP_TIME[0], NIGHT_SLEEP_TIME[1]) : 0;
+    const rest = { style, target: null, drift: f.speed, t: 0, minTime };
+    if (style === 'bottom') {
+      // 바로 아래보다 앞쪽으로 비스듬히 내려가게 목표를 잡는다
+      rest.target = {
+        x: clampX(f, f.x + f.dir * rand(10, 30)),
+        baseY: swimBottom(f.h) - 1,
+      };
+    } else if (style === 'plant') {
+      const plant = nearestPlant(f.x + f.w / 2);
+      rest.target = {
+        x: clampX(f, plantCenterX(plant) - f.w / 2 + rand(-4, 4)),
+        baseY: clamp(H - SAND_H - plantTop(plant) * 0.5 - f.h / 2, swimTop(), swimBottom(f.h) - 1),
+      };
+    }
+    f.rest = rest;
+  }
+
+  function endRest(f) {
+    f.rest = null;
+    f.speed = rollSpeed(f);
+    f.cruiseY = rand(swimTop() + 6, swimBottom(f.h) - 10);
+  }
+
+  function rest(f, dt) {
+    const r = f.rest;
+    if (r.style === 'float') {
+      // 그 자리에서 점점 느려진다
+      r.drift *= Math.exp(-FLOAT_SLOWDOWN * dt);
+      f.x += f.dir * r.drift * dt;
+      clampFish(f);
+      return;
+    }
+
+    const dx = r.target.x - f.x;
+    const dy = r.target.baseY - f.baseY;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 0.5) {
+      if (dx > 1) f.dir = 1;
+      else if (dx < -1) f.dir = -1;
+      const step = Math.min(REST_TRAVEL_SPEED * dt, dist);
+      f.x += dx / dist * step;
+      f.baseY += dy / dist * step;
+    }
+    clampFish(f);
+  }
+
+  // 이번 프레임에 실제로 움직인 방향으로 머리를 천천히 돌린다
+  // (출렁임은 빼고 계산해서 고개가 위아래로 까딱거리지 않게 한다)
+  // 거의 멈춰 있으면 천천히 수평 자세로 돌아온다
+  function turnToward(f, mx, my, dt) {
+    if (dt <= 0) return;
+    let target;
+    let rate;
+    if (Math.hypot(mx, my) / dt >= 2) {
+      target = Math.atan2(my, mx);
+      rate = TURN_RATE;
+    } else {
+      target = f.dir === 1 ? 0 : Math.PI;
+      rate = TURN_RATE * 0.3;
+    }
+    let diff = target - f.angle;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff)); // -π ~ π 로 정규화해 짧은 쪽으로 돈다
+    const maxStep = rate * dt;
+    f.angle += clamp(diff, -maxStep, maxStep);
+    f.angle = Math.atan2(Math.sin(f.angle), Math.cos(f.angle));
+
+    // 왼쪽 반원을 향하면 위아래를 뒤집어 배가 위로 가지 않게 한다 (여유를 둬서 깜빡임 방지)
+    const c = Math.cos(f.angle);
+    if (c < -0.15) f.flipped = true;
+    else if (c > 0.15) f.flipped = false;
+  }
+
+  function wander(f, dt) {
+    const prevX = f.x;
+    // 밤에는 느릿느릿, 호흡 안내 중에는 더 잔잔하게
+    const calm = lerp(1, NIGHT_SPEED_MUL, nightness()) * (breath.on ? 0.7 : 1);
+    f.x += f.dir * f.speed * calm * dt;
+
+    // 쉬고 난 뒤에는 원래 헤엄치던 높이로 천천히 올라간다
+    if (f.cruiseY !== null) {
+      const dy = f.cruiseY - f.baseY;
+      const step = CRUISE_RETURN_SPEED * dt;
+      if (Math.abs(dy) <= step) {
+        f.baseY = f.cruiseY;
+        f.cruiseY = null;
+      } else {
+        f.baseY += Math.sign(dy) * step;
+      }
+    }
+
+    // 화면 안에서 끝에 막 닿은 순간 한 번만 정한다: 밖으로 나갈지, 돌아설지
+    // (이미 밖에 있거나 반대편에서 들어오는 중이면 그대로 지나간다)
+    if (f.dir === 1 && prevX <= W - f.w && f.x > W - f.w && Math.random() >= EDGE_WRAP_CHANCE) {
+      f.x = W - f.w;
+      f.dir = -1;
+    } else if (f.dir === -1 && prevX >= 0 && f.x < 0 && Math.random() >= EDGE_WRAP_CHANCE) {
+      f.x = 0;
+      f.dir = 1;
+    }
+
+    // 가끔 무작위로 돌아선다
+    f.turnTimer -= dt;
+    if (f.turnTimer <= 0) {
+      f.dir *= -1;
+      f.speed = rollSpeed(f);
+      f.turnTimer = rand(3, 10);
+    }
+  }
+
+  // ===== 번식 =====
+
+  function canBreed(f, keeping) {
+    return !f.baby &&
+      f.breedCooldown <= 0 &&
+      !f.rest &&
+      f.stamina >= (keeping ? BREED_KEEP_STAMINA : BREED_STAMINA) &&
+      fishes.length + eggs.length < MAX_FISH;
+  }
+
+  function breedDist(a, b) {
+    const dx = wrapDx(a, (b.x + b.w / 2) - (a.x + a.w / 2));
+    const dy = (b.baseY + b.h / 2) - (a.baseY + a.h / 2);
+    return Math.hypot(dx, dy);
+  }
+
+  function unpair(f) {
+    if (f.partner && f.partner.partner === f) {
+      f.partner.partner = null;
+      f.partner.mateTimer = 0;
+    }
+    f.partner = null;
+    f.mateTimer = 0;
+  }
+
+  function updateBreeding(dt) {
+    for (const f of fishes) f.breedCooldown = Math.max(0, f.breedCooldown - dt);
+
+    // 조건이 깨진 짝은 헤어진다
+    for (const f of fishes) {
+      if (!f.partner) continue;
+      f.courtTime += dt;
+      if (!canBreed(f, true) || !canBreed(f.partner, true) || f.partner.partner !== f) {
+        unpair(f);
+      } else if (f.courtTime > BREED_GIVE_UP_TIME) {
+        f.breedCooldown = f.partner.breedCooldown = BREED_COOLDOWN / 4;
+        unpair(f);
+      }
+    }
+
+    // 짝이 없는 물고기는 가까운 짝을 찾는다
+    for (const f of fishes) {
+      if (f.partner || !canBreed(f)) continue;
+      let best = null;
+      let bestDist = BREED_SEEK_RADIUS;
+      for (const g of fishes) {
+        if (g === f || g.partner || !canBreed(g)) continue;
+        const d = breedDist(f, g);
+        if (d < bestDist) {
+          bestDist = d;
+          best = g;
+        }
+      }
+      if (best) {
+        f.partner = best;
+        best.partner = f;
+        f.courtTime = best.courtTime = 0;
+      }
+    }
+
+    // 붙어 있는 시간이 쌓이면 알을 낳는다 (짝마다 한 번만 처리)
+    for (let i = 0; i < fishes.length; i++) {
+      const f = fishes[i];
+      const g = f.partner;
+      if (!g || fishes.indexOf(g) < i) continue;
+      if (breedDist(f, g) < BREED_TOUCH_DIST + (f.w + g.w) / 4) {
+        f.mateTimer += dt;
+        f.heartTimer -= dt;
+        if (f.heartTimer <= 0) {
+          const a = centerOf(f);
+          emit('heart', a.x + wrapDx(f, centerOf(g).x - a.x) / 2, Math.min(f.y, g.y) - 2);
+          f.heartTimer = 0.5;
+        }
+        if (f.mateTimer >= BREED_TIME) layEggs(f, g);
+      } else {
+        f.mateTimer = Math.max(0, f.mateTimer - dt);
+      }
+    }
+  }
+
+  function layEggs(a, b) {
+    const ca = centerOf(a);
+    const x = ca.x + wrapDx(a, centerOf(b).x - ca.x) / 2;
+    const y = (ca.y + centerOf(b).y) / 2;
+    const room = MAX_FISH - fishes.length - eggs.length;
+    const count = Math.min(room, Math.random() < 0.4 ? 2 : 1);
+    for (let i = 0; i < count; i++) {
+      eggs.push({
+        x: clamp(x + rand(-4, 4), 3, W - 3),
+        y,
+        age: 0,
+        hatchAt: rand(...EGG_HATCH_TIME),
+        parents: [a, b],
+      });
+    }
+    for (const f of [a, b]) {
+      f.stamina -= BREED_COST;
+      f.breedCooldown = BREED_COOLDOWN;
+    }
+    unpair(a);
+    for (let i = 0; i < 4; i++) emit('heart', x + rand(-6, 6), y - rand(0, 6));
+    sfx('chime');
+    log(`${a.name} ♥ ${b.name} — 알 ${count}개`);
+  }
+
+  function updateEggs(dt) {
+    for (let i = eggs.length - 1; i >= 0; i--) {
+      const egg = eggs[i];
+      egg.age += dt;
+      egg.y = Math.min(egg.y + SINK_SPEED * dt, foodFloor() - 1);
+      if (egg.age >= egg.hatchAt) {
+        eggs.splice(i, 1);
+        hatch(egg);
+      }
+    }
+  }
+
+  // 부모 이름 앞뒤 글자를 이어 붙인다 (겹치면 숫자를 붙인다)
+  function babyName(a, b) {
+    const base = a.name[0] + b.name[b.name.length - 1];
+    let name = base;
+    let n = 2;
+    while (fishes.some((f) => f.name === name)) name = base + n++;
+    return name;
+  }
+
+  function hatch(egg) {
+    // 부모가 이미 수조를 떠났으면(새로 시작 등) 알도 없던 일로 한다
+    if (!egg.parents.every((p) => fishes.includes(p))) return;
+    const [a, b] = Math.random() < 0.5 ? egg.parents : [...egg.parents].reverse();
+    const t = rand(0.3, 0.7);
+    const palette = {};
+    for (const k of Object.keys(a.palette)) palette[k] = k === '3' ? a.palette[k] : mixColor(a.palette[k], b.palette[k], t);
+    // 성향은 부모가 '지금' 가진 성향의 평균 + 약간의 무작위 → 내가 키운 대로 닮는다
+    const traits = {};
+    for (const k of Object.keys(a.traits)) {
+      traits[k] = clamp01((a.traits[k] + b.traits[k]) / 2 + rand(-TRAIT_INHERIT_NOISE, TRAIT_INHERIT_NOISE));
+    }
+    const baby = createFish({
+      name: babyName(a, b),
+      palette,
+      traits,
+      baby: true,
+      x: egg.x - FRY_SHAPE.w / 2,
+      baseY: egg.y - FRY_SHAPE.h - 1,
+    });
+    fishes.push(baby);
+    stats.born++;
+    for (let i = 0; i < 3; i++) emit('spark', egg.x + rand(-3, 3), egg.y - rand(0, 4));
+    sfx('hatch');
+    log(`아기 ${baby.name} 태어남 (${baby.p.label})`);
+    saveSoon();
+  }
+
+  function growUp(f) {
+    const c = { x: f.x + f.w / 2, y: f.baseY + f.h / 2 };
+    f.baby = false;
+    f.shape = FISH_SHAPE;
+    f.size = Math.random() < 0.5 ? 1 : 2;
+    f.w = f.shape.w * f.size;
+    f.h = f.shape.h * f.size;
+    f.x = c.x - f.w / 2;
+    f.baseY = c.y - f.h / 2;
+    clampFish(f);
+    f.speed = rollSpeed(f);
+    f.breedCooldown = BREED_COOLDOWN / 2;
+    emit('spark', c.x, f.baseY - 3);
+    sfx('chime');
+    log(`${f.name}이(가) 다 자랐어요`);
+    saveSoon();
+  }
+
+  function drawEggs() {
+    for (const egg of eggs) {
+      // 부화가 가까워지면 들썩인다
+      const jiggle = egg.hatchAt - egg.age < 2 && Math.floor(egg.age * 8) % 2 === 0 ? 1 : 0;
+      const x = Math.round(egg.x) - 1 + jiggle;
+      const y = Math.round(egg.y) - 1;
+      ctx.fillStyle = '#e8dcb8';
+      ctx.fillRect(x, y, 2, 2);
+      ctx.fillStyle = '#fffbea';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+
+  // ===== 효과 (하트, 반짝이, 느낌표, 졸음) =====
+
+  const SPRITES = {
+    heart: { color: '#ff6b8a', rows: ['.1.1.', '11111', '.111.', '..1..'] },
+    spark: { color: '#fff3a0', rows: ['.1.', '111', '.1.'] },
+    bang:  { color: '#ffffff', rows: ['1', '1', '.', '1'] },
+    zzz:   { color: '#cfe0ff', rows: ['111', '.1.', '111'] },
+    leaf:  { color: '#5fbf6a', rows: ['11', '1.'] },
+  };
+
+  function emit(kind, x, y) {
+    particles.push({ kind, x, y, age: 0, life: kind === 'heart' ? 1.6 : kind === 'zzz' ? 2.2 : 1, vx: rand(-3, 3) });
+  }
+
+  // 물방울: 수면 위로 튀었다가 다시 떨어진다
+  const drops = [];
+  function splash(x, y, n) {
+    for (let i = 0; i < n; i++) {
+      drops.push({ x: x + rand(-1, 1), y: y - 1, vx: rand(-14, 14), vy: rand(-45, -20) });
+    }
+  }
+
+  function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const pt = particles[i];
+      pt.age += dt;
+      pt.x += pt.vx * dt + (pt.kind === 'zzz' ? Math.sin(pt.age * 3) * 0.1 : 0);
+      pt.y -= (pt.kind === 'zzz' ? 4 : pt.kind === 'leaf' ? -6 : 6) * dt;
+      if (pt.age >= pt.life) particles.splice(i, 1);
+    }
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const d = drops[i];
+      d.vy += AIR_GRAVITY * dt;
+      d.x += d.vx * dt;
+      d.y += d.vy * dt;
+      if (d.vy > 0 && d.y >= surfaceAt(d.x)) {
+        disturbSurface(d.x, 6, 1);
+        drops.splice(i, 1);
+      }
+    }
+  }
+
+  function drawParticles() {
+    for (const pt of particles) {
+      // 사라지기 직전에는 깜빡인다
+      if (pt.life - pt.age < 0.4 && Math.floor(pt.age * 12) % 2 === 0) continue;
+      const s = SPRITES[pt.kind];
+      const ox = Math.round(pt.x - s.rows[0].length / 2);
+      const oy = Math.round(pt.y - s.rows.length);
+      drawSprite(s.rows, ox, oy, { 1: s.color });
+    }
+    ctx.fillStyle = '#cfeaff';
+    for (const d of drops) ctx.fillRect(Math.round(d.x), Math.round(d.y), 1, 1);
+  }
+
+  // ===== 거품 =====
+  const bubbles = [];
+  const MAX_BUBBLES = 160;
+
+  // r: 0 = 1픽셀, 1 = 2x2, 2 = 4x4, 3 = 5x5
+  function emitBubble(x, y, r = 1, vx = 0) {
+    if (bubbles.length >= MAX_BUBBLES) bubbles.shift();
+    bubbles.push({
+      x, y, r,
+      vx,
+      vy: -(10 + r * 4 + rand(0, 6)),
+      phase: rand(0, Math.PI * 2),
+      wobble: rand(0.4, 1.2),
+    });
+  }
+
+  const BUBBLE_SPRITES = [
+    ['1'],
+    ['21', '11'],
+    ['.11.', '12.1', '1..1', '.11.'],
+    ['.111.', '12..1', '1...1', '1...1', '.111.'],
+  ];
+
+  function updateBubbles(dt) {
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i];
+      b.phase += dt * 4;
+      b.vx *= Math.exp(-2 * dt);
+      // 물고기 몸에 닿으면 옆으로 비켜 간다
+      for (const f of fishes) {
+        const c = centerOf(f);
+        const dx = b.x - c.x;
+        const dy = b.y - c.y;
+        const d = Math.hypot(dx, dy);
+        if (d < f.w / 2 && d > 0.01) b.vx += dx / d * 30 * dt;
+      }
+      b.x += (b.vx + Math.sin(b.phase) * b.wobble * 4) * dt;
+      b.y += b.vy * dt;
+      const sy = surfaceAt(b.x);
+      if (b.y <= sy + 1) {
+        // 수면에 닿으면 톡 터진다
+        disturbSurface(b.x, -(4 + b.r * 6), b.r + 1);
+        if (b.r >= 2) splash(b.x, sy, 1 + (Math.random() < 0.5 ? 1 : 0));
+        if (b.r >= 1) sfx('pop', b.r);
+        bubbles.splice(i, 1);
+      }
+    }
+  }
+
+  function drawBubbles() {
+    for (const b of bubbles) {
+      const s = BUBBLE_SPRITES[b.r];
+      drawSprite(s, Math.round(b.x - s[0].length / 2), Math.round(b.y - s.length / 2), { 1: '#a9d8f5', 2: '#ffffff' });
+    }
+  }
+
+  // ===== 플랑크톤 (떠다니는 작은 알갱이, 밤에는 건드리면 빛난다) =====
+  const plankton = [];
+  function resetPlankton() {
+    plankton.length = 0;
+    const n = Math.round(W * H / 900);
+    for (let i = 0; i < n; i++) {
+      plankton.push({
+        x: rand(0, W), y: rand(SURFACE_Y + 2, H - SAND_H - 2),
+        vx: 0, vy: 0,
+        drift: rand(0, Math.PI * 2),
+        glow: 0,
+        hue: Math.random() < 0.7 ? 0 : 1,
+      });
+    }
+  }
+
+  function updatePlankton(dt) {
+    const stir = mouse && mouse.y > SURFACE_Y;
+    for (const p of plankton) {
+      p.drift += dt * 0.3;
+      // 아주 느린 물살 + 커서가 지나가며 일으키는 물결에 휩쓸림
+      p.vx += (Math.cos(p.drift) * 1.2 - p.vx) * dt * 0.5;
+      p.vy += (Math.sin(p.drift * 0.7) * 0.6 + 0.3 - p.vy) * dt * 0.5;
+      if (stir) {
+        const dx = p.x - mouse.x;
+        const dy = p.y - mouse.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < 400) {
+          const k = 1 - Math.sqrt(d2) / 20;
+          p.vx += mouseVel.x * k * dt * 2.5;
+          p.vy += mouseVel.y * k * dt * 2.5;
+          if (mouseSpeed > CURSOR_CALM) p.glow = Math.max(p.glow, k * Math.min(1, mouseSpeed / 60));
+        }
+      }
+      // 물고기가 헤엄쳐 지나가도 반짝
+      for (const f of fishes) {
+        if (f.moveSpeed < 6) continue;
+        const c = centerOf(f);
+        if (Math.abs(p.x - c.x) < f.w / 2 + 2 && Math.abs(p.y - c.y) < f.h / 2 + 2) p.glow = Math.max(p.glow, 0.7);
+      }
+      const sp = Math.hypot(p.vx, p.vy);
+      if (sp > 30) { p.vx *= 30 / sp; p.vy *= 30 / sp; }
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.glow = Math.max(0, p.glow - dt * 0.8);
+      if (p.x < 0) p.x += W;
+      if (p.x >= W) p.x -= W;
+      if (p.y > H - SAND_H - 1) p.y = SURFACE_Y + 3;
+      if (p.y < SURFACE_Y + 2) p.y = SURFACE_Y + 2;
+    }
+  }
+
+  function drawPlankton() {
+    ctx.fillStyle = 'rgba(220, 235, 255, 0.28)';
+    for (const p of plankton) ctx.fillRect(Math.round(p.x), Math.round(p.y), 1, 1);
+  }
+
+  // 조명을 입힌 뒤에 더해서 그린다 (밤일수록 밝게)
+  function drawPlanktonGlow() {
+    const k = 0.25 + 0.75 * light.night;
+    for (const p of plankton) {
+      if (p.glow < 0.05) continue;
+      const a = p.glow * k;
+      const x = Math.round(p.x);
+      const y = Math.round(p.y);
+      ctx.fillStyle = p.hue ? `rgba(140, 255, 200, ${a})` : `rgba(110, 220, 255, ${a})`;
+      ctx.fillRect(x, y, 1, 1);
+      ctx.fillStyle = `rgba(110, 220, 255, ${a * 0.35})`;
+      ctx.fillRect(x - 1, y, 3, 1);
+      ctx.fillRect(x, y - 1, 1, 3);
+    }
+  }
+
+  // ===== 달팽이 (바닥에 남은 먹이를 치운다) =====
+  const SNAIL_SPRITE = [
+    '..ooo.....',
+    '.obbbo..e.',
+    'obooobo.k.',
+    'obobbbo.k.',
+    '.obbbokkk.',
+    'kkkkkkkkkk',
+  ];
+  const SNAIL_HIDDEN = [
+    '..ooo.....',
+    '.obbbo....',
+    'obooobo...',
+    'obobbbo...',
+    '.obbbo....',
+    '.kkkkk....',
+  ];
+  const SNAIL_COLORS = { o: '#7a4524', b: '#d08a52', k: '#cdbb98', e: '#2a2420' };
+  const SNAIL_SPEED = 1.6;
+  const snail = { x: 30, dir: 1, hide: 0, pause: 0, target: null, eatTimer: 0, step: 0 };
+
+  function snailY() {
+    return H - SAND_H - SNAIL_SPRITE.length + 2;
+  }
+
+  function updateSnail(dt) {
+    const s = snail;
+    s.hide = Math.max(0, s.hide - dt);
+    // 바로 옆에서 커서를 휘저으면 껍데기 속으로 쏙
+    if (mouse && mouseSpeed > CURSOR_FAST && Math.hypot(mouse.x - (s.x + 5), mouse.y - (snailY() + 3)) < 16) s.hide = 3;
+    if (s.hide > 0) return;
+    if (s.pause > 0) {
+      s.pause -= dt;
+      return;
+    }
+
+    // 바닥에 가라앉은 먹이 중 가장 가까운 것
+    let best = null;
+    let bestD = Infinity;
+    for (const food of foods) {
+      if (food.kind === 'bug' || food.inAir || food.y < foodFloor()) continue;
+      const d = Math.abs(food.x - (s.x + 5));
+      if (d < bestD) {
+        bestD = d;
+        best = food;
+      }
+    }
+    s.target = best;
+    if (best) {
+      s.dir = best.x > s.x + 5 ? 1 : -1;
+      if (bestD < 3) {
+        s.eatTimer += dt;
+        if (s.eatTimer > 1.2) {
+          foods.splice(foods.indexOf(best), 1);
+          s.eatTimer = 0;
+          s.pause = rand(1, 3);
+          emit('spark', s.x + 5, snailY() - 1);
+        }
+        return;
+      }
+    } else if (Math.random() < dt * 0.05) {
+      s.pause = rand(3, 10);
+      if (Math.random() < 0.4) s.dir *= -1;
+    }
+    s.step += dt;
+    s.x += s.dir * SNAIL_SPEED * dt;
+    if (s.x < 2) { s.x = 2; s.dir = 1; }
+    if (s.x > W - 12) { s.x = W - 12; s.dir = -1; }
+  }
+
+  function drawSnail() {
+    const s = snail;
+    const rows = s.hide > 0 ? SNAIL_HIDDEN : SNAIL_SPRITE;
+    // 기어갈 때 몸이 살짝 늘었다 줄었다
+    const stretch = s.hide <= 0 && s.pause <= 0 && Math.floor(s.step * 2) % 2 === 0 ? 1 : 0;
+    drawSprite(rows, Math.round(s.x) + (s.dir === 1 ? stretch : -stretch), snailY(), SNAIL_COLORS, s.dir === -1);
+  }
+
+  // ===== 보물상자와 기포기 =====
+  const CHEST_BODY = [
+    'ddddddddddddd',
+    'dbgbbbybbbgbd',
+    'dbgbbyyybbgbd',
+    'dbgbbbybbbgbd',
+    'dbgbbbbbbbgbd',
+    'ddddddddddddd',
+  ];
+  const CHEST_LID = [
+    '..lllllllll..',
+    '.lllllllllll.',
+    'lgllllllllglm',
+    'ggggggggggggg',
+  ];
+  const CHEST_LID_OPEN = [
+    '.lllllllllll.',
+    'lllllllllllll',
+  ];
+  const CHEST_COLORS = { d: '#4a2e14', b: '#8a5a2b', l: '#a06a35', g: '#d9b440', y: '#f5d442', m: '#a06a35' };
+
+  function openChest() {
+    if (chest.opening) return;
+    chest.opening = true;
+    chest.burst = rand(1.2, 2);
+    sfx('chest');
+  }
+
+  function updateChest(dt) {
+    chest.timer -= dt;
+    if (chest.timer <= 0) {
+      openChest();
+      chest.timer = rand(25, 50);
+    }
+    if (chest.opening) {
+      chest.open = Math.min(1, chest.open + dt * 3);
+      if (chest.open >= 1) {
+        chest.burst -= dt;
+        if (Math.random() < dt * 14) emitBubble(chest.x + 6 + rand(-3, 3), chest.y - 1, pick([1, 1, 2, 2, 3]), rand(-3, 3));
+        if (chest.burst <= 0) chest.opening = false;
+      }
+    } else {
+      chest.open = Math.max(0, chest.open - dt * 2);
+    }
+  }
+
+  function chestHit(x, y) {
+    return x >= chest.x - 1 && x <= chest.x + 14 && y >= chest.y - 6 && y <= chest.y + 8;
+  }
+
+  function drawChest() {
+    drawSprite(CHEST_BODY, chest.x, chest.y + 3, CHEST_COLORS);
+    if (chest.open > 0.5) {
+      // 안쪽에서 금빛이 살짝 보인다
+      ctx.fillStyle = '#ffe680';
+      ctx.fillRect(chest.x + 2, chest.y + 2, 9, 1);
+      drawSprite(CHEST_LID_OPEN, chest.x, chest.y - 2, CHEST_COLORS);
+    } else {
+      drawSprite(CHEST_LID, chest.x, chest.y - 1, CHEST_COLORS);
+    }
+  }
+
+  let bubblerTimer = 0;
+  function updateBubbler(dt) {
+    bubblerTimer -= dt;
+    if (bubblerTimer <= 0) {
+      emitBubble(bubbler.x + rand(-1, 1), bubbler.y - 2, pick([0, 1, 1, 1, 2]), rand(-1, 1));
+      bubblerTimer = rand(0.12, 0.45);
+    }
+  }
+
+  function drawBubbler() {
+    drawSprite(['.sss.', 'stsss', 'sssss'], bubbler.x - 2, bubbler.y - 2, { s: '#6f7f8f', t: '#9fb0c0' });
+  }
+
+  // ===== 그리기 =====
+
+  // 회전한 도트 맵을 화면 픽셀 단위로 다시 샘플링해서 그린다.
+  // ctx.rotate를 쓰면 사각형이 비스듬히 그려져 픽셀 느낌이 깨지므로,
+  // 화면의 각 픽셀이 원래 도트 맵의 어느 칸에 해당하는지 역회전해서 찾는다.
+  // 꼬리 쪽 칸은 tailPhase에 따라 위아래로 살짝 밀어서 살랑거리게 한다.
+  function drawFish(f) {
+    const shape = f.shape;
+    // 중심을 정수 좌표에 맞춰야 회전하지 않을 때 칸 모양이 흔들리지 않는다
+    const cx = Math.round(f.x) + f.w / 2;
+    const cy = Math.round(f.y) + f.h / 2;
+    const cos = Math.cos(f.angle);
+    const sin = Math.sin(f.angle);
+    const flip = f.flipped ? -1 : 1;
+    const radius = Math.ceil(Math.hypot(f.w, f.h) / 2) + 1;
+    const tailEdge = shape.tailEnd * f.size - f.w / 2; // 이보다 뒤쪽(lx가 작은 쪽)이 꼬리
+    const wag = Math.sin(f.tailPhase) * TAIL_WAG * f.size;
+
+    for (let py = Math.floor(cy - radius); py <= cy + radius; py++) {
+      for (let px = Math.floor(cx - radius); px <= cx + radius; px++) {
+        const dx = px + 0.5 - cx;
+        const dy = py + 0.5 - cy;
+        const lx = dx * cos + dy * sin;
+        let ly = (-dx * sin + dy * cos) * flip;
+        if (lx < tailEdge) ly -= wag * (tailEdge - lx) / (shape.tailEnd * f.size);
+        const col = Math.floor((lx + f.w / 2) / f.size);
+        const row = Math.floor((ly + f.h / 2) / f.size);
+        if (col < 0 || col >= shape.w || row < 0 || row >= shape.h) continue;
+        const cell = shape.rows[row][col];
+        if (cell === '.') continue;
+        ctx.fillStyle = f.palette[cell];
+        ctx.fillRect(px, py, 1, 1);
+      }
+    }
+
+    // 샘플링하다 보면 작은 물고기의 눈 한 칸이 빠질 수 있어서 눈은 따로 찍는다
+    // 밤에 자는 중이면 눈을 감는다 (몸 색으로 덮음)
+    const ex = (shape.eyeCol + 0.5) * f.size - f.w / 2;
+    const ey = ((shape.eyeRow + 0.5) * f.size - f.h / 2) * flip;
+    const eyeX = cx + ex * cos - ey * sin;
+    const eyeY = cy + ex * sin + ey * cos;
+    const asleep = f.rest && light.night > 0.6;
+    ctx.fillStyle = asleep ? f.palette[2] : f.palette[3];
+    ctx.fillRect(Math.floor(eyeX - f.size / 2 + 0.5), Math.floor(eyeY - f.size / 2 + 0.5), f.size, f.size);
+  }
+
+  // 위에서 아래로 점점 어두워지는 계단식 물 색
+  const WATER_BANDS = ['#18497e', '#143f72', '#123a6b', '#0f325e', '#0c2a52', '#0a2347', '#081c3b', '#061631'];
+
+  function drawBackground(time) {
+    const waterH = H - SAND_H;
+    const bandH = Math.ceil(waterH / WATER_BANDS.length);
+    WATER_BANDS.forEach((color, i) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(0, i * bandH, W, bandH);
+    });
+
+    // 멀리 보이는 언덕 (물 색에 녹아든 어두운 실루엣)
+    const sandTop = H - SAND_H;
+    ctx.fillStyle = '#0a2140';
+    for (let x = 0; x < W; x++) ctx.fillRect(x, sandTop - ridge[x], 1, ridge[x]);
+    ctx.fillStyle = '#0c2848';
+    for (let x = 0; x < W; x++) ctx.fillRect(x, sandTop - Math.round(ridge[x] * 0.45), 1, Math.round(ridge[x] * 0.45));
+
+    // 뒤쪽 수초: 어둡고 흐릿하게, 앞 수초보다 느리게 흔들린다
+    ctx.fillStyle = '#0f3a3f';
+    for (const wd of backWeeds) {
+      for (let i = 0; i < wd.h; i++) {
+        const t = i / wd.h;
+        const off = Math.round(Math.sin(time * 0.8 + wd.phase + i * 0.1) * 3 * t * t);
+        ctx.fillRect(wd.x + off, sandTop - i, i % 5 === 3 ? 3 : 1, 1);
+      }
+    }
+  }
+
+  function drawSand(time) {
+    const sandTop = H - SAND_H;
+    ctx.fillStyle = '#c9a874';
+    ctx.fillRect(0, sandTop, W, SAND_H);
+    ctx.fillStyle = '#d9bb88';
+    ctx.fillRect(0, sandTop, W, 1);
+    for (const s of sandSpecks) {
+      ctx.fillStyle = s.color;
+      ctx.fillRect(s.x, s.y, 1, 1);
+    }
+    // 물결을 통과한 빛이 모래 위에서 일렁인다
+    ctx.fillStyle = 'rgba(255, 250, 215, 0.35)';
+    for (let x = 0; x < W; x++) {
+      for (let r = 0; r < 4; r++) {
+        const y = sandTop + 1 + r * 2;
+        const v = Math.sin(x * 0.23 + time * 1.1 + r * 1.7) + Math.sin(x * 0.11 - time * 0.7 + r * 0.9);
+        if (v > 1.35) ctx.fillRect(x, y, 1, 1);
+      }
+    }
+  }
+
+  // 물고기 그림자: 바닥에 닿을수록 진하고 작게
+  function drawShadows() {
+    const sandTop = H - SAND_H;
+    for (const f of fishes) {
+      const c = centerOf(f);
+      const dist = sandTop - (f.y + f.h);
+      const k = clamp01(1 - dist / 120);
+      if (k <= 0.05) continue;
+      const w = Math.max(2, Math.round(f.w * (0.5 + 0.4 * k)));
+      ctx.fillStyle = `rgba(40, 25, 10, ${0.28 * k})`;
+      ctx.fillRect(Math.round(c.x - w / 2), sandTop + 1, w, 1);
+      ctx.fillRect(Math.round(c.x - w / 2) + 1, sandTop + 2, w - 2, 1);
+    }
+  }
+
+  function drawRocks() {
+    const sandTop = H - SAND_H;
+    for (const r of rocks) {
+      ctx.drawImage(r.img, Math.round(r.fx * W) + (r.dx || 0) - Math.round(r.w / 2), sandTop - r.h + 2);
+    }
+  }
+
+  function drawPlants(time) {
+    const baseY = H - SAND_H + 3; // 모래에 살짝 묻히게
+    for (const pl of PLANTS) {
+      const col = PLANT_COLORS[pl.color] || PLANT_COLORS.green;
+      const x0 = plantX(pl);
+      plantHeights(pl).forEach((height, j) => {
+        const sx = x0 + j * PLANT_STRAND_GAP;
+        const phase = pl.phase + j * 0.8;
+        for (let i = 0; i < height; i++) {
+          // 뿌리는 고정, 위로 갈수록 크게 흔들린다
+          const t = i / height;
+          const off = Math.round(Math.sin(time * PLANT_SWAY_SPEED + phase + i * 0.12) * PLANT_SWAY * t * t);
+          const x = sx + off;
+          const y = baseY - i;
+          ctx.fillStyle = i === height - 1 ? col.leaf : col.stem;
+          ctx.fillRect(x, y, 2, 1);
+          // 일정 간격으로 좌우 번갈아 잎을 단다
+          if (i % 6 === 4 && i < height - 3) {
+            const side = Math.floor(i / 6) % 2 === 0 ? -1 : 1;
+            ctx.fillStyle = col.leaf;
+            for (let k = 1; k <= 3; k++) {
+              const lx = side > 0 ? x + 1 + k : x - k;
+              ctx.fillRect(lx, y - Math.floor(k / 2), 1, 1);
+            }
+          }
+        }
+      });
+    }
+  }
+
+  // 수면 위 공기와 반짝이는 수면 선
+  function drawSurface() {
+    for (let x = 0; x < W; x++) {
+      const sy = surfaceAt(x);
+      ctx.fillStyle = '#0b1e36';
+      ctx.fillRect(x, 0, 1, sy);
+      ctx.fillStyle = '#10294a';
+      ctx.fillRect(x, sy - 2, 1, 2);
+      // 물결이 기울어진 곳은 더 밝게 반짝인다
+      const slope = Math.abs(surfaceAt(x + 1) - sy);
+      ctx.fillStyle = slope ? '#cfeaff' : '#7fb6e6';
+      ctx.fillRect(x, sy, 1, 1);
+      ctx.fillStyle = 'rgba(160, 210, 255, 0.25)';
+      ctx.fillRect(x, sy + 1, 1, 1);
+    }
+  }
+
+  // 시간대에 맞춰 장면 전체에 색을 곱한다 (밤에는 어둡고 푸르게, 노을에는 따뜻하게)
+  function applyTint() {
+    const [r, g, b] = light.tint;
+    if (r > 250 && g > 250 && b > 250) return;
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = `rgb(${r | 0}, ${g | 0}, ${b | 0})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // 수면에서 비스듬히 내려오는 빛줄기 (더하기로 그려서 은은하게 밝아진다)
+  const RAYS = [
+    { fx: 0.12, w: 10, speed: 0.13, phase: 0 },
+    { fx: 0.33, w: 16, speed: 0.09, phase: 2 },
+    { fx: 0.55, w: 8,  speed: 0.15, phase: 4 },
+    { fx: 0.72, w: 14, speed: 0.11, phase: 1 },
+    { fx: 0.9,  w: 9,  speed: 0.12, phase: 3 },
+  ];
+
+  function drawLightRays(time) {
+    const [r, g, b] = light.ray;
+    ctx.globalCompositeOperation = 'lighter';
+    const depth = H - SAND_H - SURFACE_Y;
+    for (const ray of RAYS) {
+      // 빛줄기마다 천천히 밝아졌다 어두워진다
+      const pulse = 0.55 + 0.45 * Math.sin(time * ray.speed * 2 + ray.phase);
+      const sway = Math.sin(time * ray.speed + ray.phase) * 10;
+      for (let y = SURFACE_Y; y < H - SAND_H; y += 2) {
+        const t = (y - SURFACE_Y) / depth;
+        const a = light.rayA * pulse * (1 - t) * (1 - t);
+        if (a < 0.004) break;
+        const x = Math.round(ray.fx * W + sway + (y - SURFACE_Y) * 0.35);
+        ctx.fillStyle = `rgba(${r | 0}, ${g | 0}, ${b | 0}, ${a})`;
+        ctx.fillRect(x - Math.round(ray.w * (1 + t) / 2), y, Math.round(ray.w * (1 + t)), 2);
+      }
+    }
+    // 수면 바로 아래 은은한 하늘빛
+    const [sr, sg, sb] = light.sky;
+    for (let i = 0; i < 10; i++) {
+      ctx.fillStyle = `rgba(${sr | 0}, ${sg | 0}, ${sb | 0}, ${light.skyA * (1 - i / 10)})`;
+      ctx.fillRect(0, SURFACE_Y + i * 2, W, 2);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // 밤에 달빛이 수면에서 일렁인다
+  function drawMoonGlint(time) {
+    if (light.night < 0.3) return;
+    const a = (light.night - 0.3) / 0.7;
+    const cx = Math.round(W * 0.7);
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = -14; i <= 14; i++) {
+      const x = cx + i;
+      const v = Math.sin(i * 0.9 + time * 2) + Math.sin(i * 0.37 - time * 1.3);
+      if (v > 0.6) {
+        ctx.fillStyle = `rgba(200, 220, 255, ${0.5 * a * (1 - Math.abs(i) / 15)})`;
+        ctx.fillRect(x, surfaceAt(x), 1, 1);
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // ===== 소리 (파일 없이 Web Audio로 직접 만든다) =====
+  // sound 0: 끔, 1: 물소리 + 효과음, 2: 여기에 잔잔한 음악까지
+  const SOUND_LABELS = ['소리 끔', '물소리', '물소리 + 음악'];
+  const MASTER_VOLUME = 0.7;
+  // 음악에 쓰는 C 장조 5음계 (도 레 미 솔 라)
+  const NOTES = [261.63, 293.66, 329.63, 392.0, 440.0];
+
+  const audio = {
+    ctx: null,
+    master: null,
+    fx: null,          // 효과음 버스
+    music: null,       // 음악 버스 (메아리 포함)
+    ambience: null,    // 물소리 버스
+    musicTimer: 0,
+    lastPop: 0,
+    padNodes: null,
+  };
+
+  function audioReady() {
+    return audio.ctx && audio.ctx.state === 'running';
+  }
+
+  function initAudio() {
+    if (audio.ctx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ac = new AC();
+    audio.ctx = ac;
+
+    const comp = ac.createDynamicsCompressor();
+    comp.connect(ac.destination);
+    audio.master = ac.createGain();
+    audio.master.gain.value = 0;
+    audio.master.connect(comp);
+
+    audio.fx = ac.createGain();
+    audio.fx.gain.value = 0.5;
+    audio.fx.connect(audio.master);
+
+    // 음악: 메아리(지연 + 되먹임)로 넓은 공간감을 준다
+    audio.music = ac.createGain();
+    audio.music.gain.value = 0;
+    const delay = ac.createDelay(2);
+    delay.delayTime.value = 0.48;
+    const feedback = ac.createGain();
+    feedback.gain.value = 0.42;
+    const tone = ac.createBiquadFilter();
+    tone.type = 'lowpass';
+    tone.frequency.value = 1800;
+    audio.music.connect(audio.master);
+    audio.music.connect(delay);
+    delay.connect(tone);
+    tone.connect(feedback);
+    feedback.connect(delay);
+    tone.connect(audio.master);
+
+    // 물소리: 갈색 소음을 낮은 음역만 남기고, 천천히 출렁이게
+    audio.ambience = ac.createGain();
+    audio.ambience.gain.value = 0;
+    audio.ambience.connect(audio.master);
+    const len = ac.sampleRate * 4;
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) {
+      last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02;
+      data[i] = last * 3.5;
+    }
+    // 이어 붙이는 곳에서 '틱' 소리가 나지 않게 양 끝을 부드럽게
+    for (let i = 0; i < 2000; i++) {
+      const k = i / 2000;
+      data[i] *= k;
+      data[len - 1 - i] *= k;
+    }
+    const noise = ac.createBufferSource();
+    noise.buffer = buf;
+    noise.loop = true;
+    const low = ac.createBiquadFilter();
+    low.type = 'lowpass';
+    low.frequency.value = 420;
+    const lfo = ac.createOscillator();
+    lfo.frequency.value = 0.07;
+    const lfoGain = ac.createGain();
+    lfoGain.gain.value = 160;
+    lfo.connect(lfoGain);
+    lfoGain.connect(low.frequency);
+    noise.connect(low);
+    low.connect(audio.ambience);
+    noise.start();
+    lfo.start();
+
+    // 음악 바닥에 깔리는 아주 옅은 화음 (도 + 솔)
+    const pad = ac.createGain();
+    pad.gain.value = 0.035;
+    pad.connect(audio.music);
+    const padLow = ac.createBiquadFilter();
+    padLow.type = 'lowpass';
+    padLow.frequency.value = 700;
+    padLow.connect(pad);
+    for (const [f, detune] of [[130.81, -4], [130.81, 5], [196.0, 0]]) {
+      const o = ac.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      o.detune.value = detune;
+      o.connect(padLow);
+      o.start();
+    }
+    const padLfo = ac.createOscillator();
+    padLfo.frequency.value = 0.05;
+    const padLfoGain = ac.createGain();
+    padLfoGain.gain.value = 0.02;
+    padLfo.connect(padLfoGain);
+    padLfoGain.connect(pad.gain);
+    padLfo.start();
+  }
+
+  // 소리 설정에 맞게 각 버스의 볼륨을 천천히 바꾼다
+  function applySound() {
+    if (settings.sound > 0) {
+      initAudio();
+      if (audio.ctx && audio.ctx.state !== 'running') audio.ctx.resume().catch(() => {});
+    }
+    if (!audio.ctx) return;
+    const t = audio.ctx.currentTime;
+    const ramp = (param, v) => {
+      param.cancelScheduledValues(t);
+      param.setValueAtTime(param.value, t);
+      param.linearRampToValueAtTime(v, t + 1.2);
+    };
+    ramp(audio.master.gain, settings.sound > 0 ? MASTER_VOLUME : 0);
+    ramp(audio.ambience.gain, settings.sound > 0 ? 0.55 : 0);
+    ramp(audio.music.gain, settings.sound > 1 ? 0.9 : 0);
+  }
+
+  // 부드러운 음 하나: 천천히 커졌다가 길게 사라진다
+  function note(freq, { type = 'sine', vol = 0.2, attack = 0.01, decay = 0.4, bus = audio.fx, when = 0, slideTo = null } = {}) {
+    if (!audioReady() || settings.sound === 0) return;
+    const ac = audio.ctx;
+    const t = ac.currentTime + when;
+    const o = ac.createOscillator();
+    const g = ac.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + attack + decay * 0.6);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
+    o.connect(g);
+    g.connect(bus);
+    o.start(t);
+    o.stop(t + attack + decay + 0.05);
+  }
+
+  // 효과음 모음
+  function sfx(kind, arg) {
+    if (!audioReady() || settings.sound === 0) return;
+    const now = audio.ctx.currentTime;
+    switch (kind) {
+      case 'pop': {
+        // 거품이 터지는 소리는 너무 잦으면 시끄러우므로 간격을 둔다
+        if (now - audio.lastPop < 0.09) return;
+        audio.lastPop = now;
+        const base = 900 - (arg || 1) * 180 + rand(-80, 80);
+        note(base, { vol: 0.05, decay: 0.08, slideTo: base * 1.8 });
+        break;
+      }
+      case 'plip':
+        note(1300, { vol: 0.06, decay: 0.1, slideTo: 800 });
+        break;
+      case 'plop':
+        note(420, { vol: 0.12, decay: 0.16, slideTo: 900 });
+        break;
+      case 'eat':
+        note(pick(NOTES) * 2, { type: 'triangle', vol: 0.05, decay: 0.25 });
+        break;
+      case 'pet':
+        note(pick(NOTES) * 2, { type: 'sine', vol: 0.06, attack: 0.03, decay: 0.6, bus: audio.music.gain.value > 0 ? audio.music : audio.fx });
+        break;
+      case 'chime':
+        note(NOTES[2] * 2, { type: 'triangle', vol: 0.06, decay: 0.8 });
+        note(NOTES[4] * 2, { type: 'triangle', vol: 0.05, decay: 0.9, when: 0.12 });
+        break;
+      case 'hatch':
+        note(NOTES[0] * 2, { type: 'triangle', vol: 0.05, decay: 0.6 });
+        note(NOTES[2] * 2, { type: 'triangle', vol: 0.05, decay: 0.6, when: 0.1 });
+        note(NOTES[3] * 2, { type: 'triangle', vol: 0.05, decay: 0.9, when: 0.2 });
+        break;
+      case 'chest':
+        for (let i = 0; i < 4; i++) note(300 + i * 80, { vol: 0.06, decay: 0.15, slideTo: 700 + i * 120, when: i * 0.12 });
+        break;
+      case 'plant':
+        note(NOTES[1], { type: 'triangle', vol: 0.08, decay: 0.3 });
+        note(NOTES[3], { type: 'triangle', vol: 0.06, decay: 0.5, when: 0.08 });
+        break;
+      case 'pluck':
+        note(NOTES[3], { type: 'triangle', vol: 0.07, decay: 0.2, slideTo: NOTES[0] });
+        break;
+      case 'ui':
+        note(880, { vol: 0.03, decay: 0.08 });
+        break;
+      case 'breathIn':
+        note(NOTES[0], { vol: 0.08, attack: 1.5, decay: 3, bus: audio.music });
+        note(NOTES[2], { vol: 0.05, attack: 2, decay: 3, bus: audio.music });
+        break;
+      case 'breathOut':
+        note(NOTES[3] / 2, { vol: 0.08, attack: 1.5, decay: 4.5, bus: audio.music });
+        note(NOTES[0], { vol: 0.04, attack: 2, decay: 4.5, bus: audio.music });
+        break;
+    }
+  }
+
+  // 음악: 몇 초마다 5음계에서 음을 하나씩 골라 오르골처럼 띄엄띄엄 연주한다
+  function updateMusic(dt) {
+    if (settings.sound < 2 || !audioReady()) return;
+    audio.musicTimer -= dt;
+    if (audio.musicTimer > 0) return;
+    // 밤에는 더 낮고 느리게
+    const night = light.night;
+    const octave = Math.random() < 0.3 - night * 0.2 ? 2 : Math.random() < 0.6 ? 1 : 0.5;
+    const f = pick(NOTES) * octave;
+    note(f, { type: 'sine', vol: 0.07, attack: 0.04, decay: rand(2, 3.5), bus: audio.music });
+    if (Math.random() < 0.35) note(f * 1.5, { type: 'sine', vol: 0.03, attack: 0.05, decay: 2.5, bus: audio.music, when: rand(0.2, 0.5) });
+    audio.musicTimer = rand(1.6, 4) * (1 + night * 0.6);
+  }
+
+  // ===== 화면 위 정보 =====
+
+  const stats = { fed: 0, eaten: 0, born: 0, pets: 0, planted: 0 };
+
+  const logEl = document.getElementById('log');
+  function log(msg) {
+    const el = document.createElement('div');
+    el.className = 'log-item';
+    el.textContent = msg;
+    logEl.appendChild(el);
+    while (logEl.children.length > 5) logEl.firstChild.remove();
+    setTimeout(() => {
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 600);
+    }, 4000);
+  }
+
+  const tooltip = document.getElementById('tooltip');
+  const ttTitle = document.getElementById('tt-title');
+  const ttStatus = document.getElementById('tt-status');
+  const ttBarsEl = document.getElementById('tt-bars');
+
+  const TT_BARS = [
+    { key: 'stamina',  label: '체력' },
+    { key: 'fear',     label: '겁',   color: '#b48cff' },
+    { key: 'appetite', label: '식탐', color: '#ff9f43' },
+    { key: 'activity', label: '활력', color: '#4fc3f7' },
+  ];
+  for (const bar of TT_BARS) {
+    const row = document.createElement('div');
+    row.className = 'tt-row';
+    row.innerHTML = '<div class="tt-bar"><div class="tt-fill"></div></div><span class="tt-value"></span>';
+    ttBarsEl.appendChild(row);
+    bar.fill = row.querySelector('.tt-fill');
+    bar.value = row.querySelector('.tt-value');
+  }
+
+  const MODE_LABELS = {
+    flee: '도망 중!', chase: '먹이 쫓는 중', follow: '졸졸 따라오는 중',
+    court: '짝에게 가는 중 ♥', pet: '기분 좋아요 ♥',
+  };
+
+  function fishAt(x, y, extra = 1) {
+    // 나중에 그린 물고기가 위에 보이므로 뒤에서부터 찾는다
+    for (let i = fishes.length - 1; i >= 0; i--) {
+      const f = fishes[i];
+      // 회전하므로 사각형 대신 몸 중심 기준 원으로 판정한다
+      const c = centerOf(f);
+      if (Math.hypot(x - c.x, y - c.y) < f.w / 2 + extra) return f;
+    }
+    return null;
+  }
+
+  function toScreen(x, y) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: rect.left + x / W * rect.width, y: rect.top + y / H * rect.height };
+  }
+
+  function updateTooltip() {
+    const hovered = !settings.zen && mouse && !renaming ? fishAt(mouse.x, mouse.y) : null;
+    if (!hovered) {
+      tooltip.hidden = true;
+      return;
+    }
+    const c = centerOf(hovered);
+    ttTitle.textContent = `${hovered.name} · ${hovered.p.label}${hovered.baby ? ' (아기)' : ''}`;
+    let status = MODE_LABELS[hovered.mode];
+    if (hovered.rest) status = light.night > 0.6 ? '쿨쿨 자는 중' : `휴식 중 (${REST_STYLE_LABELS[hovered.rest.style]})`;
+    ttStatus.hidden = !status;
+    if (status) ttStatus.textContent = status;
+    for (const bar of TT_BARS) {
+      if (bar.key === 'stamina') {
+        const s = hovered.stamina;
+        bar.fill.style.width = s / STAMINA_MAX * 100 + '%';
+        bar.fill.style.background = s < REST_START_STAMINA ? '#e05050' : s < REST_END_STAMINA ? '#e0c040' : '#50d070';
+        bar.value.textContent = `${bar.label} ${Math.round(s)}`;
+      } else {
+        const v = hovered.traits[bar.key];
+        bar.fill.style.width = v * 100 + '%';
+        bar.fill.style.background = bar.color;
+        bar.value.textContent = `${bar.label} ${Math.round(v * 100)}`;
+      }
+    }
+    const p = toScreen(c.x, c.y - hovered.w / 2);
+    tooltip.style.left = clamp(p.x, 90, window.innerWidth - 90) + 'px';
+    tooltip.style.top = Math.max(110, p.y) + 'px';
+    tooltip.hidden = false;
+  }
+
+  // ===== 도구와 버튼 =====
+
+  // 버튼 아이콘도 도트로 그린다
+  const ICONS = {
+    food:   { rows: ['....aa....', '...abba...', '..abbbba..', '..abbbba..', '...abba...', '....aa....', '..........', '.c....c...', '...c....c.', '.c...c....'], colors: { a: '#8b5a2b', b: '#d9a05a', c: '#c48a4a' } },
+    bubble: { rows: ['......aaa.', '.....a.wa.', '.....a..a.', '......aaa.', '.aaa......', 'a.w.a.....', 'a...a..aa.', 'a...a..aa.', '.aaa......', '..........'], colors: { a: '#a9d8f5', w: '#ffffff' } },
+    pet:    { rows: ['..........', '.hh..hh...', 'hhhhhhhh..', 'hhhhhhhh..', '.hhhhhh...', '..hhhh....', '...hh.....', '..........', '..........', '..........'], colors: { h: '#ff6b8a' } },
+    plant:  { rows: ['....l.....', '...lll....', '..l.s.l...', '....s.....', '.l..s..l..', '..l.s.l...', '...lsl....', '....s.....', '.ddddddd..', '..ddddd...'], colors: { l: '#7cc444', s: '#3b7d2a', d: '#c9a874' } },
+    time:   { rows: ['....y.....', '.y.yyy.y..', '..yyyyy...', '.yyyyyyy..', 'yyyyyyyyy.', '.yyyyyyy..', '..yyyyy...', '.y.yyy.y..', '....y.....', '..........'], colors: { y: '#f5d442' } },
+    moon:   { rows: ['...mmm....', '..mm......', '.mm.......', '.mm.......', '.mm.......', '.mm.......', '..mm......', '...mmm....', '..........', '..........'], colors: { m: '#cfe0ff' } },
+    sunset: { rows: ['..........', '...ooo....', '..ooooo...', '.ooooooo..', 'ppppppppp.', '.........', 'p.pp.pp.p.', '..........', '.pp..pp...', '..........'], colors: { o: '#ff9a5a', p: '#c4566a' } },
+    auto:   { rows: ['..aaaaa...', '.a.....a..', 'a...w...a.', 'a...w...a.', 'a...www.a.', 'a.......a.', 'a.......a.', '.a.....a..', '..aaaaa...', '..........'], colors: { a: '#9fd3ff', w: '#ffffff' } },
+    soundOff: { rows: ['...s......', '..ss......', 'ssss.x..x.', 'ssss..xx..', 'ssss..xx..', 'ssss.x..x.', '..ss......', '...s......', '..........', '..........'], colors: { s: '#9fb8d8', x: '#e05050' } },
+    soundOn:  { rows: ['...s......', '..ss...w..', 'ssss.w..w.', 'ssss..w.w.', 'ssss..w.w.', 'ssss.w..w.', '..ss...w..', '...s......', '..........', '..........'], colors: { s: '#9fb8d8', w: '#9fd3ff' } },
+    music:  { rows: ['....nnnnn.', '....n...n.', '....n...n.', '....n...n.', '....n...n.', '..nnn.nnn.', '.nnnn.nnn.', '..nn...n..', '..........', '..........'], colors: { n: '#fff3a0' } },
+    breath: { rows: ['...aaaa...', '..a....a..', '.a......a.', '.a..bb..a.', '.a..bb..a.', '.a......a.', '..a....a..', '...aaaa...', '..........', '..........'], colors: { a: '#a9d8f5', b: '#ffffff' } },
+    zen:    { rows: ['..........', '..eeeeee..', '.e......e.', 'e...pp...e', 'e...pp...e', '.e......e.', '..eeeeee..', '..........', '..........', '..........'], colors: { e: '#cfe0ff', p: '#3cc6c4' } },
+    full:   { rows: ['ff....ff..', 'f......f..', '..........', '..........', '..........', '..........', 'f......f..', 'ff....ff..', '..........', '..........'], colors: { f: '#cfe0ff' } },
+    help:   { rows: ['..qqqq....', '.q....q...', '......q...', '.....q....', '....q.....', '....q.....', '..........', '....q.....', '..........', '..........'], colors: { q: '#cfe0ff' } },
+  };
+
+  function iconCanvas(name) {
+    const icon = ICONS[name];
+    const c = document.createElement('canvas');
+    c.width = 10;
+    c.height = 10;
+    const g = c.getContext('2d');
+    icon.rows.forEach((row, y) => {
+      for (let x = 0; x < row.length; x++) {
+        const col = icon.colors[row[x]];
+        if (!col) continue;
+        g.fillStyle = col;
+        g.fillRect(x, y, 1, 1);
+      }
+    });
+    return c;
+  }
+
+  const TOOLS = {
+    food:   { label: '먹이', key: '1', hint: '클릭해서 먹이 주기 · 물 위를 누르면 퐁당' },
+    bubble: { label: '거품', key: '2', hint: '누르고 있으면 거품이 뽀글뽀글' },
+    pet:    { label: '쓰다듬기', key: '3', hint: '물고기 위에서 꾹 누르고 있기 · 겁 많은 아이는 먼저 가만히 기다려 주세요' },
+    plant:  { label: '수초 심기', key: '4', hint: '모래를 눌러 수초 심기 · 수초 밑동을 누르면 뽑기' },
+  };
+  let tool = 'food';
+  let pointerDown = false;
+  let bubbleToolActive = false;
+  let bubbleAcc = 0;
+
+  const toolbar = document.getElementById('toolbar');
+  const hintEl = document.getElementById('hint');
+  const buttons = {};
+
+  function makeButton(id, icon, tip, key, onClick) {
+    const b = document.createElement('button');
+    b.className = 'btn';
+    b.type = 'button';
+    b.dataset.tip = tip;
+    b.setAttribute('aria-label', tip);
+    b.appendChild(iconCanvas(icon));
+    if (key) {
+      const k = document.createElement('span');
+      k.className = 'key';
+      k.textContent = key;
+      b.appendChild(k);
+    }
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      startAudioIfWanted();
+      onClick();
+      b.blur();
+    });
+    toolbar.appendChild(b);
+    buttons[id] = b;
+    return b;
+  }
+
+  function setIcon(id, icon) {
+    const b = buttons[id];
+    b.replaceChild(iconCanvas(icon), b.querySelector('canvas'));
+  }
+
+  function separator() {
+    const s = document.createElement('div');
+    s.className = 'sep';
+    toolbar.appendChild(s);
+  }
+
+  let hintTimer = 0;
+  function showHint(text, seconds = 4) {
+    hintEl.textContent = text;
+    hintTimer = seconds;
+  }
+
+  function setTool(name) {
+    tool = name;
+    for (const t in TOOLS) buttons[t].classList.toggle('active', t === name);
+    showHint(TOOLS[name].hint, 6);
+    sfx('ui');
+  }
+
+  for (const [name, t] of Object.entries(TOOLS)) makeButton(name, name, `${t.label} (${t.key})`, t.key, () => setTool(name));
+  separator();
+  makeButton('time', 'auto', '시간 (T)', 'T', cycleTime);
+  makeButton('sound', 'soundOff', '소리 (S)', 'S', cycleSound);
+  makeButton('breath', 'breath', '호흡 안내 (B)', 'B', toggleBreath);
+  makeButton('zen', 'zen', '바라보기 모드 (H)', 'H', toggleZen);
+  makeButton('full', 'full', '전체 화면 (F)', 'F', toggleFullscreen);
+  makeButton('help', 'help', '도움말 (?)', '?', toggleHelp);
+
+  function cycleTime() {
+    settings.timeMode = TIME_MODES[(TIME_MODES.indexOf(settings.timeMode) + 1) % TIME_MODES.length];
+    refreshButtons();
+    showHint(`시간: ${TIME_MODE_LABELS[settings.timeMode]}`);
+    sfx('ui');
+    saveSoon();
+  }
+
+  function cycleSound() {
+    settings.sound = (settings.sound + 1) % 3;
+    applySound();
+    refreshButtons();
+    showHint(SOUND_LABELS[settings.sound]);
+    saveSoon();
+  }
+
+  function refreshButtons() {
+    setIcon('time', { auto: 'auto', day: 'time', sunset: 'sunset', night: 'moon' }[settings.timeMode]);
+    buttons.time.dataset.tip = `시간: ${TIME_MODE_LABELS[settings.timeMode]} (T)`;
+    setIcon('sound', ['soundOff', 'soundOn', 'music'][settings.sound]);
+    buttons.sound.dataset.tip = `${SOUND_LABELS[settings.sound]} (S)`;
+    buttons.sound.classList.toggle('active', settings.sound > 0);
+    buttons.breath.classList.toggle('active', breath.on);
+    buttons.zen.classList.toggle('active', settings.zen);
+  }
+
+  // 저장해 둔 설정으로 소리가 켜져 있으면, 브라우저 정책상 첫 클릭/키 입력 때 시작한다
+  function startAudioIfWanted() {
+    if (settings.sound > 0 && !audioReady()) applySound();
+  }
+
+  // ===== 바라보기 모드 / 손을 떼면 UI 숨기기 =====
+  const IDLE_TIME = 5;
+  let idleTime = 0;
+
+  function wake() {
+    idleTime = 0;
+    document.body.classList.remove('idle');
+  }
+
+  function toggleZen() {
+    settings.zen = !settings.zen;
+    document.body.classList.toggle('zen', settings.zen);
+    refreshButtons();
+    if (settings.zen) log('바라보기 모드 · H 키나 아무 곳 더블클릭으로 돌아와요');
+    saveSoon();
+  }
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+    else document.exitFullscreen?.();
+  }
+
+  const helpEl = document.getElementById('help');
+  function toggleHelp() {
+    helpEl.hidden = !helpEl.hidden;
+  }
+  document.getElementById('help-close').addEventListener('click', () => { helpEl.hidden = true; });
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    if (!confirm('물고기와 수초를 처음 상태로 되돌릴까요?')) return;
+    resetTank();
+    helpEl.hidden = true;
+  });
+
+  // ===== 호흡 안내 =====
+  // 들이쉬기 4초 → 잠깐 멈춤 2초 → 내쉬기 6초. 큰 거품이 숨에 맞춰 부풀었다 줄어든다
+  const BREATH_STEPS = [
+    { label: '천천히 들이쉬어요', time: 4, from: 0, to: 1, sound: 'breathIn' },
+    { label: '잠깐 머금어요', time: 2, from: 1, to: 1 },
+    { label: '길게 내쉬어요', time: 6, from: 1, to: 0, sound: 'breathOut' },
+  ];
+  const breath = { on: false, step: 0, t: 0, size: 0, count: 0, alpha: 0 };
+  const breathEl = document.getElementById('breath');
+
+  function toggleBreath() {
+    breath.on = !breath.on;
+    breath.step = 0;
+    breath.t = 0;
+    breath.count = 0;
+    if (breath.on) sfx(BREATH_STEPS[0].sound);
+    refreshButtons();
+    saveSoon();
+  }
+
+  function updateBreath(dt) {
+    breath.alpha = clamp01(breath.alpha + (breath.on ? dt : -dt) * 0.8);
+    if (!breath.on) {
+      breathEl.style.opacity = breath.alpha;
+      if (breath.alpha <= 0) breathEl.hidden = true;
+      return;
+    }
+    breath.t += dt;
+    const st = BREATH_STEPS[breath.step];
+    if (breath.t >= st.time) {
+      breath.t = 0;
+      breath.step = (breath.step + 1) % BREATH_STEPS.length;
+      if (breath.step === 0) breath.count++;
+      const next = BREATH_STEPS[breath.step];
+      if (next.sound) sfx(next.sound);
+    }
+    const cur = BREATH_STEPS[breath.step];
+    const k = breath.t / cur.time;
+    const e = 0.5 - Math.cos(Math.PI * k) / 2; // 천천히 시작해서 천천히 끝나게
+    breath.size = lerp(cur.from, cur.to, e);
+    breathEl.hidden = false;
+    breathEl.style.opacity = breath.alpha;
+    const left = Math.ceil(cur.time - breath.t);
+    breathEl.innerHTML = `${cur.label} · ${left}<small>${breath.count > 0 ? `${breath.count}번째 숨 · ` : ''}B 키로 끝내기</small>`;
+  }
+
+  // 화면 가운데 큰 거품 (도트로 된 원)
+  function drawBreathBubble() {
+    if (breath.alpha <= 0) return;
+    const cx = Math.round(W / 2);
+    const cy = Math.round(SURFACE_Y + (H - SAND_H - SURFACE_Y) * 0.5);
+    const maxR = Math.min(W, H) * 0.22;
+    const r = Math.round(lerp(maxR * 0.25, maxR, breath.size));
+    ctx.globalAlpha = breath.alpha * 0.85;
+    ctx.fillStyle = '#a9d8f5';
+    // 원 둘레를 한 픽셀씩 찍는다
+    let x = r;
+    let y = 0;
+    let err = 1 - r;
+    while (x >= y) {
+      for (const [px, py] of [[x, y], [y, x], [-y, x], [-x, y], [-x, -y], [-y, -x], [y, -x], [x, -y]]) {
+        ctx.fillRect(cx + px, cy + py, 1, 1);
+      }
+      y++;
+      if (err < 0) err += 2 * y + 1;
+      else {
+        x--;
+        err += 2 * (y - x) + 1;
+      }
+    }
+    // 반짝이는 하이라이트
+    ctx.fillStyle = '#ffffff';
+    const hr = Math.max(1, Math.round(r * 0.18));
+    ctx.fillRect(cx - Math.round(r * 0.5), cy - Math.round(r * 0.5), hr, 1);
+    ctx.fillRect(cx - Math.round(r * 0.5), cy - Math.round(r * 0.5), 1, hr);
+    ctx.globalAlpha = breath.alpha * 0.08;
+    ctx.fillStyle = '#cfeaff';
+    for (let yy = -r + 1; yy < r; yy++) {
+      const half = Math.floor(Math.sqrt(r * r - yy * yy));
+      ctx.fillRect(cx - half + 1, cy + yy, half * 2 - 1, 1);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ===== 이름 짓기 =====
+  let renaming = null;
+  function openRename(f) {
+    closeRename();
+    renaming = f;
+    const box = document.createElement('div');
+    box.id = 'rename';
+    box.innerHTML = '<span>이름</span><input maxlength="8" spellcheck="false">';
+    const input = box.querySelector('input');
+    input.value = f.name;
+    document.body.appendChild(box);
+    const place = () => {
+      if (!renaming) return;
+      const c = centerOf(renaming);
+      const p = toScreen(c.x, c.y - renaming.h);
+      box.style.left = clamp(p.x, 100, window.innerWidth - 100) + 'px';
+      box.style.top = Math.max(50, p.y) + 'px';
+    };
+    place();
+    box.place = place;
+    input.focus();
+    input.select();
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        const name = input.value.trim();
+        if (name && name !== f.name) {
+          log(`${f.name} → 이제 '${name}'(이)라고 불러요`);
+          f.name = name;
+          emit('heart', centerOf(f).x, f.y - 2);
+          saveSoon();
+        }
+        closeRename();
+      } else if (e.key === 'Escape') {
+        closeRename();
+      }
+    });
+    input.addEventListener('blur', () => setTimeout(closeRename, 100));
+  }
+
+  function closeRename() {
+    renaming = null;
+    document.getElementById('rename')?.remove();
+  }
+
+  // ===== 수초 심기 / 뽑기 =====
+  function plantAt(x, y) {
+    // 밑동 근처를 누르면 뽑는다
+    const sandTop = H - SAND_H;
+    for (let i = PLANTS.length - 1; i >= 0; i--) {
+      const pl = PLANTS[i];
+      const left = plantX(pl) - 2;
+      const right = plantX(pl) + (pl.heights.length - 1) * PLANT_STRAND_GAP + 4;
+      if (x >= left && x <= right && y >= sandTop - Math.min(14, plantTop(pl)) && y <= H) {
+        PLANTS.splice(i, 1);
+        for (let k = 0; k < 5; k++) emit('leaf', plantCenterX(pl) + rand(-4, 4), sandTop - rand(2, 14));
+        sfx('pluck');
+        // 이 수초에서 쉬던 물고기는 다른 곳을 찾아간다
+        for (const f of fishes) if (f.rest && f.rest.style === 'plant') endRest(f);
+        saveSoon();
+        return;
+      }
+    }
+    if (y < SURFACE_Y + 4) return;
+    if (PLANTS.length >= MAX_PLANTS) {
+      showHint('수초가 가득해요 · 밑동을 눌러 몇 포기 뽑아 주세요');
+      return;
+    }
+    const strands = randInt(2, 3);
+    const tall = rand(0.5, 1) * Math.min(60, (H - SAND_H - SURFACE_Y) * 0.4);
+    PLANTS.push({
+      fx: clamp((x - (strands - 1) * PLANT_STRAND_GAP / 2) / W, 0, 0.98),
+      heights: Array.from({ length: strands }, () => Math.round(tall * rand(0.6, 1))),
+      phase: rand(0, 6),
+      color: pick(Object.keys(PLANT_COLORS)),
+      grow: 0,
+    });
+    stats.planted++;
+    emit('spark', x, sandTop - 2);
+    sfx('plant');
+    saveSoon();
+  }
+
+  function updatePlants(dt) {
+    for (const pl of PLANTS) if (pl.grow < 1) pl.grow = Math.min(1, pl.grow + dt / PLANT_GROW_TIME);
+  }
+
+  // ===== 마우스 / 터치 =====
+  function toTank(e) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) / rect.width * W,
+      y: (e.clientY - rect.top) / rect.height * H,
+    };
+  }
+
+  canvas.addEventListener('pointermove', (e) => {
+    mouse = toTank(e);
+    wake();
+  });
+  canvas.addEventListener('pointerleave', () => {
+    mouse = null;
+    pointerDown = false;
+  });
+  window.addEventListener('pointerup', (e) => {
+    pointerDown = false;
+    // 터치는 손을 떼면 커서가 사라진 것으로 본다
+    if (e.pointerType === 'touch') mouse = null;
+  });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  canvas.addEventListener('pointerdown', (e) => {
+    wake();
+    startAudioIfWanted();
+    hideWelcome();
+    if (renaming) {
+      closeRename();
+      return;
+    }
+    if (!helpEl.hidden) {
+      helpEl.hidden = true;
+      return;
+    }
+    const { x, y } = toTank(e);
+    mouse = { x, y };
+    prevMouse = { x, y };
+    pointerDown = true;
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 무시 */ }
+
+    // 보물상자는 어떤 도구로든 누르면 열린다
+    if (chestHit(x, y)) {
+      openChest();
+      return;
+    }
+    // 달팽이를 누르면 껍데기 속으로 숨는다
+    if (Math.abs(x - (snail.x + 5)) < 7 && Math.abs(y - (snailY() + 3)) < 5) {
+      snail.hide = 4;
+      return;
+    }
+
+    if (tool === 'food') {
+      dropFood(x, y);
+      stats.fed++;
+      // 바로 옆에 먹이를 떨어뜨리면 깜짝 놀란다
+      for (const f of fishes) {
+        const c = centerOf(f);
+        if (Math.hypot(c.x - x, c.y - y) < CLICK_STARTLE_RADIUS) {
+          f.traits.fear = clamp01(f.traits.fear + CLICK_STARTLE_FEAR);
+        }
+      }
+    } else if (tool === 'plant') {
+      plantAt(x, y);
+    } else if (tool === 'bubble') {
+      bubbleAcc = 1;
+    }
+  });
+
+  canvas.addEventListener('dblclick', (e) => {
+    if (settings.zen) {
+      toggleZen();
+      return;
+    }
+    const { x, y } = toTank(e);
+    const f = fishAt(x, y, 3);
+    if (f) openRename(f);
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
+    wake();
+    startAudioIfWanted();
+    hideWelcome();
+    const k = e.key.toLowerCase();
+    const toolKeys = { 1: 'food', 2: 'bubble', 3: 'pet', 4: 'plant' };
+    if (toolKeys[k]) setTool(toolKeys[k]);
+    else if (k === 't') cycleTime();
+    else if (k === 's') cycleSound();
+    else if (k === 'b') toggleBreath();
+    else if (k === 'h') toggleZen();
+    else if (k === 'f') toggleFullscreen();
+    else if (k === '?' || k === '/') toggleHelp();
+    else if (k === 'escape') {
+      helpEl.hidden = true;
+      if (breath.on) toggleBreath();
+    }
+  });
+
+  // 수면을 커서로 쓸면 물결이 인다
+  function stirSurface(dt) {
+    if (!mouse || prevMouse === null) return;
+    const sy = surfaceAt(mouse.x);
+    if (Math.abs(mouse.y - sy) < 4 && Math.abs(mouseVel.x) + Math.abs(mouseVel.y) > 10) {
+      disturbSurface(mouse.x, clamp(mouseVel.y * 0.6 + Math.abs(mouseVel.x) * 0.15, -60, 60) * dt * 8, 2);
+      if (Math.random() < dt * Math.min(20, mouseSpeed / 10)) splash(mouse.x, sy, 1);
+    }
+  }
+
+  function updateBubbleTool(dt) {
+    bubbleToolActive = tool === 'bubble' && pointerDown && mouse && mouse.y > SURFACE_Y;
+    if (!bubbleToolActive) return;
+    bubbleAcc += dt * BUBBLE_TOOL_RATE;
+    while (bubbleAcc >= 1) {
+      bubbleAcc -= 1;
+      emitBubble(mouse.x + rand(-2, 2), mouse.y + rand(-2, 2), pick([0, 1, 1, 2, 2, 3]), mouseVel.x * 0.2 + rand(-3, 3));
+    }
+  }
+
+  // ===== 저장 (이 브라우저에만 남는다) =====
+  const SAVE_KEY = 'pixel-aquarium-v2';
+  let saveTimer = 0;
+  function saveSoon() {
+    saveTimer = Math.min(saveTimer || 1.5, 1.5);
+  }
+
+  function saveTank() {
+    try {
+      const data = {
+        v: 2,
+        settings: { timeMode: settings.timeMode, sound: settings.sound, zen: settings.zen },
+        stats,
+        fishes: fishes.map((f) => ({
+          name: f.name, palette: f.palette, traits: f.traits, nature: f.nature,
+          personality: f.personality, baby: f.baby, age: f.age, size: f.size,
+          stamina: Math.round(f.stamina), x: Math.round(f.x), baseY: Math.round(f.baseY), H,
+        })),
+        plants: PLANTS.map((p) => ({ fx: p.fx, heights: p.heights, phase: p.phase, color: p.color, grow: p.grow })),
+      };
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    } catch (err) {
+      // 저장할 수 없는 환경(사생활 보호 모드 등)이면 그냥 넘어간다
+    }
+  }
+
+  function loadTank() {
+    let data = null;
+    try {
+      data = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+    } catch (err) {
+      data = null;
+    }
+    if (!data || data.v !== 2) return false;
+    try {
+      if (data.settings) {
+        if (TIME_MODES.includes(data.settings.timeMode)) settings.timeMode = data.settings.timeMode;
+        if ([0, 1, 2].includes(data.settings.sound)) settings.sound = data.settings.sound;
+        settings.zen = !!data.settings.zen;
+      }
+      if (data.stats) Object.assign(stats, data.stats);
+      if (Array.isArray(data.plants)) {
+        PLANTS = data.plants
+          .filter((p) => typeof p.fx === 'number' && Array.isArray(p.heights) && p.heights.length)
+          .map((p) => ({ fx: p.fx, heights: p.heights.map(Number), phase: +p.phase || 0, color: PLANT_COLORS[p.color] ? p.color : 'green', grow: clamp01(+p.grow || 0) }));
+      }
+      if (Array.isArray(data.fishes) && data.fishes.length) {
+        fishes = data.fishes.slice(0, MAX_FISH).map((d) => {
+          const f = createFish({
+            name: String(d.name).slice(0, 12),
+            palette: d.palette,
+            traits: d.traits,
+            nature: d.nature,
+            baby: !!d.baby,
+            age: +d.age || 0,
+            size: d.baby ? 1 : (d.size === 2 ? 2 : 1),
+            stamina: clamp(+d.stamina || 60, 0, STAMINA_MAX),
+            x: clamp(+d.x || 0, 0, W - 20),
+            personality: PERSONALITIES[d.personality] ? d.personality : undefined,
+            // 화면 높이가 달라졌으면 비율을 맞춘다
+            baseY: Number.isFinite(+d.baseY) && d.H ? (+d.baseY / d.H) * H : undefined,
+          });
+          clampFish(f);
+          return f;
+        });
+      }
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function resetTank() {
+    fishes = newStartingFishes();
+    eggs.length = 0;
+    foods.length = 0;
+    PLANTS = DEFAULT_PLANTS.map((p) => ({ ...p, heights: [...p.heights], grow: 1 }));
+    for (const k in stats) stats[k] = 0;
+    log('새 수조를 꾸렸어요');
+    saveTank();
+  }
+
+  window.addEventListener('beforeunload', saveTank);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) saveTank();
+  });
+
+  // ===== 시계와 수조 정보 =====
+  const clockEl = document.getElementById('clock');
+  const statsEl = document.getElementById('stats');
+  let infoTimer = 0;
+  function updateInfo(dt) {
+    infoTimer -= dt;
+    if (infoTimer > 0) return;
+    infoTimer = 1;
+    const d = new Date();
+    clockEl.textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const babies = fishes.filter((f) => f.baby).length;
+    statsEl.textContent = `물고기 ${fishes.length}마리${babies ? ` (아기 ${babies})` : ''}${eggs.length ? ` · 알 ${eggs.length}` : ''}`;
+  }
+
+  // ===== 환영 인사 =====
+  const welcomeEl = document.getElementById('welcome');
+  let welcomeTimer = 6;
+  function hideWelcome() {
+    welcomeEl.classList.add('gone');
+  }
+
+  // ===== 시작 =====
+  if (!loadTank()) {
+    fishes = newStartingFishes();
+  }
+  snail.x = rand(10, W - 20);
+  resetPlankton();
+  window.addEventListener('resize', resetPlankton);
+  document.body.classList.toggle('zen', settings.zen);
+  refreshButtons();
+  setTool('food');
+  showHint(settings.sound > 0 ? '화면을 한 번 누르면 소리가 다시 켜져요 · ? 도움말' : '천천히 바라보거나, 아래 도구로 놀아 주세요 · ? 도움말', 8);
+
+  // 처음 열 때 어둠 속에서 천천히 밝아진다
+  const fadeEl = document.getElementById('fade');
+  const FADE_IN_TIME = 2.5;
+  let fadeT = 0;
+
+  let last = performance.now();
+  function frame(now) {
+    // 탭 전환 후 복귀 시 큰 점프를 막기 위해 dt 상한을 둔다
+    // 첫 프레임은 시각이 거꾸로 잡힐 수 있어서 0 아래로는 내려가지 않게 한다
+    const dt = clamp((now - last) / 1000, 0, 0.1);
+    last = now;
+    const time = now / 1000;
+
+    // 손을 떼고 가만히 있으면 UI가 스르륵 사라진다
+    idleTime += dt;
+    if (idleTime > IDLE_TIME && !document.body.classList.contains('idle') && helpEl.hidden && !renaming) {
+      document.body.classList.add('idle');
+    }
+    if (hintTimer > 0) {
+      hintTimer -= dt;
+      if (hintTimer <= 0) hintEl.textContent = '';
+    }
+    if (fadeEl.isConnected) {
+      fadeT += dt;
+      const k = clamp01(fadeT / FADE_IN_TIME);
+      fadeEl.style.opacity = String(1 - k * k * (3 - 2 * k));
+      if (k >= 1) fadeEl.remove();
+    }
+    if (welcomeTimer > 0) {
+      welcomeTimer -= dt;
+      if (welcomeTimer <= 0) hideWelcome();
+    }
+
+    updateLight(dt);
+    updateMouseSpeed(dt);
+    updateWaves(dt);
+    stirSurface(dt);
+    updateFoods(dt);
+    updateEggs(dt);
+    petted = findPetted();
+    for (const f of fishes) updateFish(f, dt);
+    updateBreeding(dt);
+    eatFoods();
+    updateBubbleTool(dt);
+    updateBubbles(dt);
+    updateBubbler(dt);
+    updateChest(dt);
+    updateSnail(dt);
+    updatePlants(dt);
+    updatePlankton(dt);
+    updateParticles(dt);
+    updateBreath(dt);
+    updateMusic(dt);
+    updateInfo(dt);
+
+    drawBackground(time);
+    drawPlankton();
+    drawSand(time);
+    drawShadows();
+    drawRocks();
+    drawBubbler();
+    drawChest();
+    drawEggs();
+    drawFoods();
+    drawSnail();
+    for (const f of fishes) drawFish(f);
+    drawPlants(time);
+    drawBubbles();
+    drawSurface();
+    applyTint();
+    drawLightRays(time);
+    drawMoonGlint(time);
+    drawPlanktonGlow();
+    drawBreathBubble();
+    drawParticles();
+    updateTooltip();
+    if (renaming) document.getElementById('rename')?.place?.();
+
+    if (saveTimer > 0) {
+      saveTimer -= dt;
+      if (saveTimer <= 0) saveTank();
+    }
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // 혹시 저장할 일이 없어도 30초마다 한 번씩 저장한다
+  setInterval(saveTank, 30000);
+</script>
+</body>
+</html>
