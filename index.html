@@ -282,6 +282,67 @@
     outline: none;
   }
 
+  /* 소리 크기 조절 (도구 막대 바로 위) */
+  #sound-panel {
+    background: var(--ui-bg);
+    border: 2px solid var(--ui-border);
+    padding: 6px 10px;
+    font: 12px var(--font);
+    color: var(--ui-text);
+  }
+  .vol-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+  .vol-row span { width: 3.5em; color: var(--ui-dim); }
+  .vol-row b { width: 2em; text-align: right; font-weight: normal; color: var(--ui-accent); }
+  .vol-row button {
+    font: 12px var(--font);
+    color: var(--ui-text);
+    background: #0a1a33;
+    border: 2px solid var(--ui-border);
+    padding: 2px 10px;
+    cursor: pointer;
+  }
+  .vol-row button:hover { background: #163562; }
+  #sound-panel.off input, #sound-panel.off b { opacity: 0.45; }
+  /* 슬라이더도 도트 느낌으로: 채워진 만큼(--fill) 밝게 */
+  #sound-panel input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 140px;
+    height: 16px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+    --fill: 50%;
+  }
+  #sound-panel input[type=range]::-webkit-slider-runnable-track {
+    height: 6px;
+    border: 1px solid var(--ui-border);
+    background: linear-gradient(to right, #3a6ea5 var(--fill), #0b1a33 var(--fill));
+  }
+  #sound-panel input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    box-sizing: border-box;
+    width: 10px;
+    height: 14px;
+    margin-top: -4px;
+    background: var(--ui-accent);
+    border: 2px solid #0a1a33;
+  }
+  #sound-panel input[type=range]::-moz-range-track {
+    height: 6px;
+    border: 1px solid var(--ui-border);
+    background: linear-gradient(to right, #3a6ea5 var(--fill), #0b1a33 var(--fill));
+  }
+  #sound-panel input[type=range]::-moz-range-thumb {
+    box-sizing: border-box;
+    width: 10px;
+    height: 14px;
+    border-radius: 0;
+    background: var(--ui-accent);
+    border: 2px solid #0a1a33;
+  }
+  #sound-panel input[type=range]:focus-visible { outline: 2px solid #fff3a0; outline-offset: 2px; }
+
   /* 집중 타이머: 시계 아래 남은 시간 (바라보기 모드에서도 보인다) */
   #focus-info { pointer-events: auto; cursor: pointer; margin-top: 2px; }
   #focus-time { font: 16px var(--font); color: #fff3a0; }
@@ -327,6 +388,22 @@
 <div id="breath" hidden></div>
 
 <div id="dock" class="ui auto-hide zen-hide">
+  <div id="sound-panel" hidden>
+    <div class="vol-row">
+      <span>소리</span>
+      <button type="button" id="sound-toggle"></button>
+    </div>
+    <div class="vol-row">
+      <span>물소리</span>
+      <input type="range" id="vol-water" min="0" max="100" step="5" aria-label="물소리 크기">
+      <b id="vol-water-v"></b>
+    </div>
+    <div class="vol-row">
+      <span>음악</span>
+      <input type="range" id="vol-music" min="0" max="100" step="5" aria-label="음악 크기">
+      <b id="vol-music-v"></b>
+    </div>
+  </div>
   <div id="hint"></div>
   <div id="toolbar" role="toolbar" aria-label="도구"></div>
 </div>
@@ -350,7 +427,7 @@
   </ul>
   <ul>
     <li><kbd>T</kbd> 시간 (자동 → 낮 → 노을 → 밤)</li>
-    <li><kbd>S</kbd> 소리 (끔 → 물소리 → 물소리+음악)</li>
+    <li><kbd>S</kbd> 소리 켜기/끄기 · 소리 버튼을 누르면 물소리와 음악 크기를 따로 조절해요</li>
     <li><kbd>B</kbd> 호흡 안내 · <kbd>H</kbd> 바라보기 모드 · <kbd>F</kbd> 전체 화면</li>
     <li><kbd>P</kbd> 집중 타이머 · 집중하는 동안엔 수조만 보여요</li>
   </ul>
@@ -636,7 +713,9 @@
 
   const settings = {
     timeMode: 'auto',
-    sound: 0,          // 0 = 끔, 1 = 물소리, 2 = 물소리 + 음악
+    sound: 0,          // 0 = 끔, 1 = 켬
+    water: 70,         // 물소리 크기 (0~100)
+    music: 70,         // 음악 크기 (0~100)
     zen: false,
   };
 
@@ -2383,9 +2462,18 @@
   }
 
   // ===== 소리 (파일 없이 Web Audio로 직접 만든다) =====
-  // sound 0: 끔, 1: 물소리 + 효과음, 2: 여기에 잔잔한 음악까지
-  const SOUND_LABELS = ['소리 끔', '물소리', '물소리 + 음악'];
+  // 소리를 켜면 효과음이 나고, 물소리와 음악은 각자 크기(0~100)대로 깔린다
   const MASTER_VOLUME = 0.7;
+  const WATER_MAX = 1.1;             // 물소리 100일 때 크기
+  const MUSIC_MAX = 1.8;             // 음악 100일 때 크기
+  // 귀는 작은 소리의 변화에 더 민감해서, 눈금을 제곱해 실제 크기로 바꾼다
+  function volumeGain(v, max) {
+    return (v / 100) ** 2 * max;
+  }
+
+  function soundLabel() {
+    return settings.sound ? `물소리 ${settings.water} · 음악 ${settings.music}` : '소리 끔';
+  }
   // 음악에 쓰는 C 장조 5음계 (도 레 미 솔 라)
   const NOTES = [261.63, 293.66, 329.63, 392.0, 440.0];
 
@@ -2498,22 +2586,24 @@
     padLfo.start();
   }
 
-  // 소리 설정에 맞게 각 버스의 볼륨을 천천히 바꾼다
-  function applySound() {
+  // 소리 설정에 맞게 각 버스의 볼륨을 천천히 바꾼다 (슬라이더를 움직일 때는 바로 따라오게 빠르게)
+  function applySound(fast = false) {
     if (settings.sound > 0) {
       initAudio();
       if (audio.ctx && audio.ctx.state !== 'running') audio.ctx.resume().catch(() => {});
     }
     if (!audio.ctx) return;
     const t = audio.ctx.currentTime;
+    const time = fast ? 0.15 : 1.2;
     const ramp = (param, v) => {
       param.cancelScheduledValues(t);
       param.setValueAtTime(param.value, t);
-      param.linearRampToValueAtTime(v, t + 1.2);
+      param.linearRampToValueAtTime(v, t + time);
     };
-    ramp(audio.master.gain, settings.sound > 0 ? MASTER_VOLUME : 0);
-    ramp(audio.ambience.gain, settings.sound > 0 ? 0.55 : 0);
-    ramp(audio.music.gain, settings.sound > 1 ? 0.9 : 0);
+    const on = settings.sound > 0;
+    ramp(audio.master.gain, on ? MASTER_VOLUME : 0);
+    ramp(audio.ambience.gain, on ? volumeGain(settings.water, WATER_MAX) : 0);
+    ramp(audio.music.gain, on ? volumeGain(settings.music, MUSIC_MAX) : 0);
   }
 
   // 부드러운 음 하나: 천천히 커졌다가 길게 사라진다
@@ -2595,7 +2685,7 @@
 
   // 음악: 몇 초마다 5음계에서 음을 하나씩 골라 오르골처럼 띄엄띄엄 연주한다
   function updateMusic(dt) {
-    if (settings.sound < 2 || !audioReady()) return;
+    if (!settings.sound || !settings.music || !audioReady()) return;
     audio.musicTimer -= dt;
     if (audio.musicTimer > 0) return;
     // 밤에는 더 낮고 느리게
@@ -2802,7 +2892,7 @@
   separator();
   makeButton('focus', 'focus', '집중 타이머 (P)', 'P', toggleFocusPanel);
   makeButton('time', 'auto', '시간 (T)', 'T', cycleTime);
-  makeButton('sound', 'soundOff', '소리 (S)', 'S', cycleSound);
+  makeButton('sound', 'soundOff', '소리 (S)', 'S', toggleSoundPanel);
   makeButton('breath', 'breath', '호흡 안내 (B)', 'B', toggleBreath);
   makeButton('zen', 'zen', '바라보기 모드 (H)', 'H', toggleZen);
   makeButton('full', 'full', '전체 화면 (F)', 'F', toggleFullscreen);
@@ -2816,20 +2906,21 @@
     saveSoon();
   }
 
-  function cycleSound() {
-    settings.sound = (settings.sound + 1) % 3;
+  function toggleSound() {
+    settings.sound = settings.sound ? 0 : 1;
     applySound();
     refreshButtons();
-    showHint(SOUND_LABELS[settings.sound]);
+    showHint(soundLabel());
     saveSoon();
   }
 
   function refreshButtons() {
     setIcon('time', { auto: 'auto', day: 'time', sunset: 'sunset', night: 'moon' }[settings.timeMode]);
     buttons.time.dataset.tip = `시간: ${TIME_MODE_LABELS[settings.timeMode]} (T)`;
-    setIcon('sound', ['soundOff', 'soundOn', 'music'][settings.sound]);
-    buttons.sound.dataset.tip = `${SOUND_LABELS[settings.sound]} (S)`;
+    setIcon('sound', !settings.sound ? 'soundOff' : settings.music ? 'music' : 'soundOn');
+    buttons.sound.dataset.tip = `${soundLabel()} (S)`;
     buttons.sound.classList.toggle('active', settings.sound > 0);
+    renderSoundPanel();
     buttons.breath.classList.toggle('active', breath.on);
     buttons.zen.classList.toggle('active', settings.zen);
   }
@@ -2837,6 +2928,48 @@
   // 저장해 둔 설정으로 소리가 켜져 있으면, 브라우저 정책상 첫 클릭/키 입력 때 시작한다
   function startAudioIfWanted() {
     if (settings.sound > 0 && !audioReady()) applySound();
+  }
+
+  // ===== 소리 크기 조절 =====
+  // 소리 버튼을 누르면 도구 막대 위에 열린다. 물소리와 음악 크기를 따로 맞춘다
+  const soundPanel = document.getElementById('sound-panel');
+  const soundToggleBtn = document.getElementById('sound-toggle');
+  const VOLUME_SLIDERS = [
+    { key: 'water', input: document.getElementById('vol-water'), value: document.getElementById('vol-water-v') },
+    { key: 'music', input: document.getElementById('vol-music'), value: document.getElementById('vol-music-v') },
+  ];
+
+  function renderSoundPanel() {
+    soundToggleBtn.textContent = settings.sound ? '켬' : '끔';
+    soundPanel.classList.toggle('off', !settings.sound);
+    for (const s of VOLUME_SLIDERS) {
+      s.input.value = settings[s.key];
+      s.input.style.setProperty('--fill', settings[s.key] + '%');
+      s.value.textContent = settings[s.key];
+    }
+  }
+
+  function toggleSoundPanel() {
+    soundPanel.hidden = !soundPanel.hidden;
+  }
+
+  soundToggleBtn.addEventListener('click', () => {
+    startAudioIfWanted();
+    toggleSound();
+  });
+  for (const s of VOLUME_SLIDERS) {
+    s.input.addEventListener('input', () => {
+      settings[s.key] = +s.input.value;
+      // 크기를 만지는 건 듣고 싶다는 뜻이니, 꺼져 있었으면 켠다
+      if (!settings.sound) settings.sound = 1;
+      // 음악은 띄엄띄엄 울리니 바로 한 음 들려준다
+      if (s.key === 'music') audio.musicTimer = Math.min(audio.musicTimer, 0.2);
+      applySound(true);
+      refreshButtons();
+      showHint(soundLabel());
+      wake();
+      saveSoon();
+    });
   }
 
   // ===== 바라보기 모드 / 손을 떼면 UI 숨기기 =====
@@ -3348,9 +3481,10 @@
       closeRename();
       return;
     }
-    if (!helpEl.hidden || !focusPanel.hidden) {
+    if (!helpEl.hidden || !focusPanel.hidden || !soundPanel.hidden) {
       helpEl.hidden = true;
       focusPanel.hidden = true;
+      soundPanel.hidden = true;
       return;
     }
     const { x, y } = toTank(e);
@@ -3398,7 +3532,8 @@
   });
 
   window.addEventListener('keydown', (e) => {
-    if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
+    // 글자 입력칸에서는 단축키를 쓰지 않는다 (소리 슬라이더는 괜찮다)
+    if ((e.target instanceof HTMLInputElement && e.target.type !== 'range') || e.metaKey || e.ctrlKey || e.altKey) return;
     wake();
     startAudioIfWanted();
     hideWelcome();
@@ -3406,7 +3541,7 @@
     const toolKeys = { 1: 'food', 2: 'bubble', 3: 'pet', 4: 'plant' };
     if (toolKeys[k]) setTool(toolKeys[k]);
     else if (k === 't') cycleTime();
-    else if (k === 's') cycleSound();
+    else if (k === 's') toggleSound();
     else if (k === 'b') toggleBreath();
     else if (k === 'h') toggleZen();
     else if (k === 'f') toggleFullscreen();
@@ -3415,6 +3550,7 @@
     else if (k === 'escape') {
       helpEl.hidden = true;
       focusPanel.hidden = true;
+      soundPanel.hidden = true;
       if (breath.on) toggleBreath();
     }
   });
@@ -3450,7 +3586,7 @@
     try {
       const data = {
         v: 2,
-        settings: { timeMode: settings.timeMode, sound: settings.sound, zen: settings.zen },
+        settings: { timeMode: settings.timeMode, sound: settings.sound, water: settings.water, music: settings.music, zen: settings.zen },
         stats,
         fishes: fishes.map((f) => ({
           name: f.name, palette: f.palette, traits: f.traits, nature: f.nature,
@@ -3477,7 +3613,12 @@
     try {
       if (data.settings) {
         if (TIME_MODES.includes(data.settings.timeMode)) settings.timeMode = data.settings.timeMode;
-        if ([0, 1, 2].includes(data.settings.sound)) settings.sound = data.settings.sound;
+        const s = data.settings;
+        if ([0, 1, 2].includes(s.sound)) settings.sound = s.sound > 0 ? 1 : 0;
+        if (Number.isFinite(s.water)) settings.water = clamp(Math.round(s.water), 0, 100);
+        if (Number.isFinite(s.music)) settings.music = clamp(Math.round(s.music), 0, 100);
+        // 예전 저장은 소리가 0 끔 / 1 물소리만 / 2 물소리 + 음악이었다. '물소리만'이면 음악 크기를 0으로 옮긴다
+        else if (s.sound === 1) settings.music = 0;
         settings.zen = !!data.settings.zen;
       }
       loadFocus(data.focus);
