@@ -375,7 +375,18 @@
     padding: 8px 10px;
     z-index: 16;
   }
-  #donate-card p { margin: 0 0 6px; }
+  #donate-card p { margin: 0 0 6px; padding-right: 14px; }
+  #donate-card #donate-close {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    padding: 0 5px;
+    border: none;
+    background: none;
+    color: var(--ui-dim);
+    font: 14px var(--font);
+  }
+  #donate-card #donate-close:hover { color: var(--ui-text); }
   #donate-card .row { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
   #donate-card a, #donate-card button {
     font: 12px var(--font);
@@ -484,7 +495,8 @@
   <p class="credit"><a href="https://github.com/shinhchn/pixel-aquarium" target="_blank" rel="noopener">만든 사람</a> · <a class="donate-go" target="_blank" rel="noopener">후원하기</a></p>
 </div>
 
-<div id="donate-card" class="ui zen-hide" hidden>
+<div id="donate-card" class="ui" hidden>
+  <button type="button" id="donate-close" aria-label="닫기">×</button>
   <p>오늘도 집중 완료 🐟<br>이 수조는 대학생 개발자가 혼자 만들고 있어요. 마음에 드셨다면 작은 후원이 큰 힘이 돼요.</p>
   <div class="row">
     <a class="donate-go" target="_blank" rel="noopener">커피 한 잔 후원하기</a>
@@ -685,10 +697,9 @@
 
   // 후원 카드
   const DONATE_URL = 'https://qr.kakaopay.com/FZwYvY4js'; // [후원하기]가 새 탭으로 여는 주소
-  const DONATE_FIRST = 3;            // 누적 집중 완료 몇 번째에 처음 보여 줄지
-  const DONATE_EVERY = 5;            // 그 뒤로는 완료 몇 번마다 보여 줄지
+  const DONATE_FIRST = 1;            // 누적 집중 완료 몇 번째에 처음 보여 줄지 (1, 1이면 마칠 때마다)
+  const DONATE_EVERY = 1;            // 그 뒤로는 완료 몇 번마다 보여 줄지
   const DONATE_SNOOZE_DAYS = 7;      // [다음에요]를 누르면 이만큼(일) 안 보여 준다
-  const DONATE_SHOW_TIME = 10;       // 카드가 혼자 닫히기까지(초)
 
   // ===== 여기부터 구현 =====
 
@@ -3644,32 +3655,31 @@
   }
 
   // ===== 후원 카드 =====
-  // 광고 대신 부담 없는 후원 통로. 집중을 끝까지 마쳤을 때만, 그것도 가끔 구석에 잠깐 띄운다.
-  // 완료 횟수는 집중 타이머의 focus.total(저장됨)을 그대로 쓴다
+  // 광고 대신 부담 없는 후원 통로. 집중을 끝까지 마쳐 휴식이 시작되는 순간 구석에 띄우고, X를 눌러야 닫힌다
+  // (다음 집중을 시작하면 집중을 방해하지 않게 닫는다). 완료 횟수는 집중 타이머의 focus.total(저장됨)을 그대로 쓴다
   const donate = {
     dismissedAt: 0,    // [다음에요]를 마지막으로 누른 시각(ms)
     clicked: false,    // 후원 링크를 누른 적이 있으면 다시는 자동으로 안 띄운다
   };
   const donateCard = document.getElementById('donate-card');
-  let donateTimer = 0;
 
   function hideDonateCard() {
-    clearTimeout(donateTimer);
     donateCard.hidden = true;
   }
 
-  // 집중을 끝까지 마칠 때마다 부른다: 3번째, 그 뒤 5번마다. 쉬는 중이거나 바라보기 모드면 건너뛴다
+  // 집중을 끝까지 마칠 때마다 부른다 (몇 번째마다 띄울지는 DONATE_FIRST / DONATE_EVERY)
   function maybeShowDonateCard() {
     const n = focus.total;
     const due = n === DONATE_FIRST || (n > DONATE_FIRST && (n - DONATE_FIRST) % DONATE_EVERY === 0);
     const snoozed = Date.now() - donate.dismissedAt < DONATE_SNOOZE_DAYS * 86400000;
-    if (!due || snoozed || donate.clicked || settings.zen) return;
+    if (!due || snoozed || donate.clicked) return;
     // 도구 막대 바로 위에 둬서 모바일에서도 겹치지 않게 한다
-    donateCard.style.bottom = innerHeight - dockEl.getBoundingClientRect().top + 8 + 'px';
+    // (바라보기 모드에서 막대가 내려가 있다 올라오는 중일 수 있어, 움직임(transform)을 뺀 offsetTop으로 잰다)
+    donateCard.style.bottom = innerHeight - dockEl.offsetTop + 8 + 'px';
     donateCard.hidden = false;
-    clearTimeout(donateTimer);
-    donateTimer = setTimeout(hideDonateCard, DONATE_SHOW_TIME * 1000);
   }
+
+  document.getElementById('donate-close').addEventListener('click', hideDonateCard);
 
   // 카드의 [후원하기]와 도움말 맨 아래 '후원하기' 둘 다
   for (const a of document.querySelectorAll('.donate-go')) {
