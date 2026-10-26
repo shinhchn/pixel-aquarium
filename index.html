@@ -362,38 +362,40 @@
   .focus-set small { font: 10px var(--font-small); color: #6f8fb5; }
   #focus-note { margin: 8px 0 0; font-size: 12px; color: var(--ui-dim); }
 
-  /* 후원 카드: 집중을 끝까지 마쳤을 때만 오른쪽 구석(도구 막대 위)에 잠깐 */
+  /* 후원 카드: 집중을 끝까지 마쳐 휴식이 시작되면 화면 한가운데에 */
   #donate-card {
     position: fixed;
-    right: 12px;
-    width: min(250px, calc(100vw - 24px));
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(340px, calc(100vw - 32px));
     box-sizing: border-box;
-    background: var(--ui-bg);
+    background: rgba(4, 12, 28, 0.95);
     border: 2px solid var(--ui-border);
     color: var(--ui-text);
-    font: 12px/1.6 var(--font);
-    padding: 8px 10px;
+    font: 14px/1.7 var(--font);
+    padding: 14px 16px;
     z-index: 16;
   }
-  #donate-card p { margin: 0 0 6px; padding-right: 14px; }
+  #donate-card p { margin: 0 0 10px; padding-right: 16px; word-break: keep-all; }
   #donate-card #donate-close {
     position: absolute;
-    top: 2px;
-    right: 2px;
-    padding: 0 5px;
+    top: 4px;
+    right: 4px;
+    padding: 0 6px;
     border: none;
     background: none;
     color: var(--ui-dim);
-    font: 14px var(--font);
+    font: 18px var(--font);
   }
   #donate-card #donate-close:hover { color: var(--ui-text); }
-  #donate-card .row { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+  #donate-card .row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
   #donate-card a, #donate-card button {
-    font: 12px var(--font);
+    font: 13px var(--font);
     color: var(--ui-text);
     background: #0a1a33;
     border: 2px solid var(--ui-border);
-    padding: 2px 8px;
+    padding: 4px 12px;
     cursor: pointer;
     text-decoration: none;
     white-space: nowrap;
@@ -3673,9 +3675,6 @@
     const due = n === DONATE_FIRST || (n > DONATE_FIRST && (n - DONATE_FIRST) % DONATE_EVERY === 0);
     const snoozed = Date.now() - donate.dismissedAt < DONATE_SNOOZE_DAYS * 86400000;
     if (!due || snoozed || donate.clicked) return;
-    // 도구 막대 바로 위에 둬서 모바일에서도 겹치지 않게 한다
-    // (바라보기 모드에서 막대가 내려가 있다 올라오는 중일 수 있어, 움직임(transform)을 뺀 offsetTop으로 잰다)
-    donateCard.style.bottom = innerHeight - dockEl.offsetTop + 8 + 'px';
     donateCard.hidden = false;
   }
 
