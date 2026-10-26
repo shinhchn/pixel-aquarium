@@ -940,17 +940,61 @@
     return { rows, w: rows[0].length, h: rows.length, eyeRow, eyeCol: rows[eyeRow].indexOf('3'), tailEnd };
   }
 
-  // 오른쪽을 바라보는 물고기 도트 맵
+  // 물고기 종류: 오른쪽을 바라보는 도트 맵
   // . = 빈칸, 1 = 몸통, 2 = 꼬리, 3 = 눈, 4 = 배
-  const FISH_SHAPE = makeShape([
-    '.....111...',
-    '2...111111.',
-    '22.11111311',
-    '22211111111',
-    '22.11114441',
-    '2...111111.',
-    '.....111...',
-  ]);
+  // 꼬리(2)가 있는 열까지 살랑거리므로, 등·배지느러미는 1이나 4로 그린다
+  // speedMul: 헤엄 속도 배율 (성격별 속도에 곱해진다)
+  const FISH_SPECIES = {
+    basic: { label: '금붕어', speedMul: 1, shape: makeShape([
+      '.....111...',
+      '2...111111.',
+      '22.11111311',
+      '22211111111',
+      '22.11114441',
+      '2...111111.',
+      '.....111...',
+    ]) },
+    neon: { label: '네온', speedMul: 1.25, shape: makeShape([
+      '.....11111...',
+      '22.111111131.',
+      '2221111111111',
+      '22.144444441.',
+      '.....11111...',
+    ]) },
+    angel: { label: '엔젤', speedMul: 0.9, shape: makeShape([
+      '...1......',
+      '...11.....',
+      '...111....',
+      '2.111111..',
+      '221111113.',
+      '2211111111',
+      '22.1444441',
+      '2.144444..',
+      '...111....',
+      '...11.....',
+      '...1......',
+    ]) },
+    puffer: { label: '복어', speedMul: 0.75, shape: makeShape([
+      '..1.1.1..',
+      '..11111..',
+      '2.1111131',
+      '221111111',
+      '2.1444441',
+      '..14441..',
+      '..1.1.1..',
+    ]) },
+    betta: { label: '베타', speedMul: 0.9, shape: makeShape([
+      '2...........',
+      '22....111...',
+      '222..111111.',
+      '222211111311',
+      '222211111111',
+      '222211144441',
+      '222..144441.',
+      '22....111...',
+      '2...........',
+    ]) },
+  };
   // 갓 태어난 아기 물고기
   const FRY_SHAPE = makeShape([
     '...111..',
@@ -966,15 +1010,15 @@
   const REST_STYLE_LABELS = { float: '제자리', bottom: '바닥', plant: '수초' };
 
   const FISH_DEFS = [
-    { name: '코랄', personality: 'glutton', palette: { 1: '#f28c28', 2: '#c65f12', 3: '#1a1a1a', 4: '#ffd08a' } }, // 주황
-    { name: '버터', personality: 'lazy',    palette: { 1: '#f5d442', 2: '#c9a51c', 3: '#1a1a1a', 4: '#fff2a8' } }, // 노랑
-    { name: '모모', personality: 'timid',   palette: { 1: '#f27aa8', 2: '#c44f7d', 3: '#1a1a1a', 4: '#ffc4dc' } }, // 분홍
-    { name: '민트', personality: 'timid',   palette: { 1: '#3cc6c4', 2: '#22908f', 3: '#1a1a1a', 4: '#a8f0ee' } }, // 청록
-    { name: '콩이', personality: 'normal',  palette: { 1: '#8fd14f', 2: '#5f9a2c', 3: '#1a1a1a', 4: '#d2f5a8' } }, // 연두
+    { name: '코랄', species: 'basic',  personality: 'glutton', palette: { 1: '#f28c28', 2: '#c65f12', 3: '#1a1a1a', 4: '#ffd08a' } }, // 주황
+    { name: '버터', species: 'puffer', personality: 'lazy',    palette: { 1: '#f5d442', 2: '#c9a51c', 3: '#1a1a1a', 4: '#fff2a8' } }, // 노랑
+    { name: '모모', species: 'betta',  personality: 'timid',   palette: { 1: '#f27aa8', 2: '#c44f7d', 3: '#1a1a1a', 4: '#ffc4dc' } }, // 분홍
+    { name: '민트', species: 'angel',  personality: 'timid',   palette: { 1: '#3cc6c4', 2: '#22908f', 3: '#1a1a1a', 4: '#a8f0ee' } }, // 청록
+    { name: '콩이', species: 'neon',   personality: 'normal',  palette: { 1: '#8fd14f', 2: '#5f9a2c', 3: '#1a1a1a', 4: '#d2f5a8' } }, // 연두
   ];
 
   function rollSpeed(f) {
-    return rand(...f.p.speed) * (f.baby ? BABY_SPEED_MUL : 1);
+    return rand(...f.p.speed) * (f.baby ? BABY_SPEED_MUL : 1) * FISH_SPECIES[f.species].speedMul;
   }
 
   function swimTop() {
@@ -985,10 +1029,11 @@
     return H - SAND_H - h;
   }
 
-  // def: name, palette, traits, 그리고 아기일 때 baby / x / baseY
+  // def: name, species, palette, traits, 그리고 아기일 때 baby / x / baseY
   function createFish(def) {
     const baby = !!def.baby;
-    const shape = baby ? FRY_SHAPE : FISH_SHAPE;
+    const species = FISH_SPECIES[def.species] ? def.species : 'basic';
+    const shape = baby ? FRY_SHAPE : FISH_SPECIES[species].shape;
     const size = def.size ?? (baby ? 1 : Math.random() < 0.5 ? 1 : 2); // 칸 하나의 픽셀 크기
     const w = shape.w * size;
     const h = shape.h * size;
@@ -996,6 +1041,7 @@
     const dir = Math.random() < 0.5 ? -1 : 1;
     const f = {
       name: def.name,
+      species,                  // 물고기 종류 (FISH_SPECIES). 아기 때는 모두 같은 치어 모양
       palette: def.palette,
       shape,
       size,
@@ -1923,6 +1969,7 @@
     }
     const baby = createFish({
       name: babyName(a, b),
+      species: a.species,
       palette,
       traits,
       baby: true,
@@ -1940,7 +1987,7 @@
   function growUp(f) {
     const c = { x: f.x + f.w / 2, y: f.baseY + f.h / 2 };
     f.baby = false;
-    f.shape = FISH_SHAPE;
+    f.shape = FISH_SPECIES[f.species].shape;
     f.size = Math.random() < 0.5 ? 1 : 2;
     f.w = f.shape.w * f.size;
     f.h = f.shape.h * f.size;
@@ -2833,7 +2880,7 @@
       return;
     }
     const c = centerOf(hovered);
-    ttTitle.textContent = `${hovered.name} · ${hovered.p.label}${hovered.baby ? ' (아기)' : ''}`;
+    ttTitle.textContent = `${hovered.name} · ${FISH_SPECIES[hovered.species].label} · ${hovered.p.label}${hovered.baby ? ' (아기)' : ''}`;
     let status = MODE_LABELS[hovered.mode];
     if (hovered.rest) status = light.night > 0.6 ? '쿨쿨 자는 중' : `휴식 중 (${REST_STYLE_LABELS[hovered.rest.style]})`;
     ttStatus.hidden = !status;
@@ -3663,7 +3710,7 @@
         settings: { timeMode: settings.timeMode, sound: settings.sound, water: settings.water, music: settings.music, zen: settings.zen },
         stats,
         fishes: fishes.map((f) => ({
-          name: f.name, palette: f.palette, traits: f.traits, nature: f.nature,
+          name: f.name, species: f.species, palette: f.palette, traits: f.traits, nature: f.nature,
           personality: f.personality, baby: f.baby, age: f.age, size: f.size,
           stamina: Math.round(f.stamina), x: Math.round(f.x), baseY: Math.round(f.baseY), H,
         })),
@@ -3706,6 +3753,7 @@
         fishes = data.fishes.slice(0, MAX_FISH).map((d) => {
           const f = createFish({
             name: String(d.name).slice(0, 12),
+            species: d.species, // 예전 저장에는 없다 → createFish가 금붕어로 둔다
             palette: d.palette,
             traits: d.traits,
             nature: d.nature,
