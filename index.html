@@ -283,7 +283,7 @@
   }
 
   /* 소리 크기 조절 (도구 막대 바로 위) */
-  #sound-panel {
+  #sound-panel, #time-panel {
     background: var(--ui-bg);
     border: 2px solid var(--ui-border);
     padding: 6px 10px;
@@ -300,8 +300,11 @@
     border: 2px solid var(--ui-border);
     padding: 2px 10px;
     cursor: pointer;
+    white-space: nowrap;
   }
   .vol-row button:hover { background: #163562; }
+  .vol-row button.active { border-color: var(--ui-accent); background: #163562; }
+  #time-sun { font: 10px var(--font-small); color: #6f8fb5; }
   #sound-panel.off input, #sound-panel.off b { opacity: 0.45; }
   /* 슬라이더도 도트 느낌으로: 채워진 만큼(--fill) 밝게 */
   #sound-panel input[type=range] {
@@ -388,6 +391,15 @@
 <div id="breath" hidden></div>
 
 <div id="dock" class="ui auto-hide zen-hide">
+  <div id="time-panel" hidden>
+    <div class="vol-row">
+      <button type="button" data-time="auto">자동</button>
+      <button type="button" data-time="day">낮</button>
+      <button type="button" data-time="sunset">노을</button>
+      <button type="button" data-time="night">밤</button>
+    </div>
+    <div id="time-sun"></div>
+  </div>
   <div id="sound-panel" hidden>
     <div class="vol-row">
       <span>소리</span>
@@ -426,7 +438,7 @@
     <li>물고기를 더블클릭하면 이름을 지어 줄 수 있어요</li>
   </ul>
   <ul>
-    <li><kbd>T</kbd> 시간 (자동 → 낮 → 노을 → 밤)</li>
+    <li><kbd>T</kbd> 시간 (자동 → 낮 → 노을 → 밤) · 시간 버튼을 누르면 고를 수 있어요. 자동은 해 뜨고 질 때에 맞춰 바뀌어요</li>
     <li><kbd>S</kbd> 소리 켜기/끄기 · 소리 버튼을 누르면 물소리와 음악 크기를 따로 조절해요</li>
     <li><kbd>B</kbd> 호흡 안내 · <kbd>H</kbd> 바라보기 모드 · <kbd>F</kbd> 전체 화면</li>
     <li><kbd>P</kbd> 집중 타이머 · 집중하는 동안엔 수조만 보여요</li>
@@ -697,13 +709,8 @@
     sunset: { tint: [255, 200, 178], ray: [255, 160, 95],  rayA: 0.11,  night: 0.3,  sky: [255, 120, 70],  skyA: 0.30 },
     night:  { tint: [72, 90, 152],   ray: [160, 195, 255], rayA: 0.03,  night: 1,    sky: [90, 120, 220],  skyA: 0.06 },
   };
-  // 자동 모드: 실제 시각에 맞춰 바뀐다 [시, 시간대]
-  const DAY_KEYS = [
-    [0, 'night'], [5, 'night'], [6.5, 'sunset'], [8, 'day'],
-    [17, 'day'], [18.5, 'sunset'], [20, 'night'], [24, 'night'],
-  ];
   const TIME_MODES = ['auto', 'day', 'sunset', 'night'];
-  const TIME_MODE_LABELS = { auto: '자동 (실제 시간)', day: '낮', sunset: '노을', night: '밤' };
+  const TIME_MODE_LABELS = { auto: '자동', day: '낮', sunset: '노을', night: '밤' };
   const LIGHT_BLEND_SPEED = 0.35;    // 시간대를 바꿨을 때 빛이 옮겨 가는 빠르기(초당 비율)
 
   function lerpPreset(a, b, t) {
@@ -714,12 +721,45 @@
     return out;
   }
 
+  // 오늘 해 뜨고 지는 시각 [해돋이, 해넘이] (시, 소수). 날짜만으로 어림하는 일출 공식
+  // 위치를 묻지 않으려고 위도는 서울로 두고, 경도는 한국 시간대면 서울, 아니면 그 시간대의 기준 경도로 본다
+  // shortcut: 위도가 서울 고정이라 먼 나라에선 수십 분 어긋남, 해외 사용자가 늘면 geolocation으로 바꾼다
+  function sunTimes(d = new Date()) {
+    const rad = Math.PI / 180;
+    const day = (d - new Date(d.getFullYear(), 0, 0)) / 86400000;
+    const b = rad * 360 / 365 * (day - 81);
+    const decl = 23.44 * rad * Math.sin(b);
+    const eqTime = 9.87 * Math.sin(2 * b) - 7.53 * Math.cos(b) - 1.5 * Math.sin(b); // 균시차(분)
+    const tzLon = -d.getTimezoneOffset() / 4;
+    const lon = tzLon === 135 ? 126.98 : tzLon;
+    const lat = 37.57 * rad;
+    const cosH = (Math.sin(-0.83 * rad) - Math.sin(lat) * Math.sin(decl)) / (Math.cos(lat) * Math.cos(decl));
+    const half = Math.acos(clamp(cosH, -1, 1)) / rad / 15; // 해가 떠 있는 시간의 절반
+    const noon = 12 + (tzLon - lon) / 15 - eqTime / 60;
+    return [noon - half, noon + half];
+  }
+
+  function sunText() {
+    const [rise, set] = sunTimes();
+    return `해돋이 ${formatTime(Math.round(rise * 60))} · 해넘이 ${formatTime(Math.round(set * 60))}`;
+  }
+
+  function timeLabel() {
+    return settings.timeMode === 'auto' ? `자동 (${sunText()})` : TIME_MODE_LABELS[settings.timeMode];
+  }
+
   function presetForNow() {
     const d = new Date();
     const hour = d.getHours() + d.getMinutes() / 60;
-    for (let i = 0; i < DAY_KEYS.length - 1; i++) {
-      const [h0, p0] = DAY_KEYS[i];
-      const [h1, p1] = DAY_KEYS[i + 1];
+    const [rise, set] = sunTimes(d);
+    // 해 뜰 무렵·질 무렵이 노을빛이고, 그 앞뒤 1시간 반에 걸쳐 밤과 낮으로 넘어간다 [시, 시간대]
+    const keys = [
+      [0, 'night'], [rise - 1.5, 'night'], [rise, 'sunset'], [rise + 1.5, 'day'],
+      [set - 1.5, 'day'], [set, 'sunset'], [set + 1.5, 'night'], [24, 'night'],
+    ];
+    for (let i = 0; i < keys.length - 1; i++) {
+      const [h0, p0] = keys[i];
+      const [h1, p1] = keys[i + 1];
       if (hour >= h0 && hour <= h1) {
         const t = (hour - h0) / (h1 - h0);
         // 부드럽게 넘어가도록 양 끝을 완만하게
@@ -3009,19 +3049,23 @@
   for (const [name, t] of Object.entries(TOOLS)) makeButton(name, name, `${t.label} (${t.key})`, t.key, () => setTool(name));
   separator();
   makeButton('focus', 'focus', '집중 타이머 (P)', 'P', toggleFocusPanel);
-  makeButton('time', 'auto', '시간 (T)', 'T', cycleTime);
+  makeButton('time', 'auto', '시간 (T)', 'T', toggleTimePanel);
   makeButton('sound', 'soundOff', '소리 (S)', 'S', toggleSoundPanel);
   makeButton('breath', 'breath', '호흡 안내 (B)', 'B', toggleBreath);
   makeButton('zen', 'zen', '바라보기 모드 (H)', 'H', toggleZen);
   makeButton('full', 'full', '전체 화면 (F)', 'F', toggleFullscreen);
   makeButton('help', 'help', '도움말 (?)', '?', toggleHelp);
 
-  function cycleTime() {
-    settings.timeMode = TIME_MODES[(TIME_MODES.indexOf(settings.timeMode) + 1) % TIME_MODES.length];
+  function setTimeMode(mode) {
+    settings.timeMode = mode;
     refreshButtons();
-    showHint(`시간: ${TIME_MODE_LABELS[settings.timeMode]}`);
+    showHint(`시간: ${timeLabel()}`);
     sfx('ui');
     saveSoon();
+  }
+
+  function cycleTime() {
+    setTimeMode(TIME_MODES[(TIME_MODES.indexOf(settings.timeMode) + 1) % TIME_MODES.length]);
   }
 
   function toggleSound() {
@@ -3034,7 +3078,8 @@
 
   function refreshButtons() {
     setIcon('time', { auto: 'auto', day: 'time', sunset: 'sunset', night: 'moon' }[settings.timeMode]);
-    buttons.time.dataset.tip = `시간: ${TIME_MODE_LABELS[settings.timeMode]} (T)`;
+    buttons.time.dataset.tip = `시간: ${timeLabel()} (T)`;
+    renderTimePanel();
     setIcon('sound', !settings.sound ? 'soundOff' : settings.music ? 'music' : 'soundOn');
     buttons.sound.dataset.tip = `${soundLabel()} (S)`;
     buttons.sound.classList.toggle('active', settings.sound > 0);
@@ -3069,6 +3114,7 @@
 
   function toggleSoundPanel() {
     soundPanel.hidden = !soundPanel.hidden;
+    timePanel.hidden = true;
   }
 
   soundToggleBtn.addEventListener('click', () => {
@@ -3089,6 +3135,23 @@
       saveSoon();
     });
   }
+
+  // ===== 시간대 고르기 =====
+  // 시간 버튼을 누르면 도구 막대 위에 열린다. 자동(해 뜨고 질 때에 맞춰)이나 낮·노을·밤 중에서 고른다
+  const timePanel = document.getElementById('time-panel');
+  const timeOptBtns = timePanel.querySelectorAll('[data-time]');
+
+  function renderTimePanel() {
+    for (const b of timeOptBtns) b.classList.toggle('active', b.dataset.time === settings.timeMode);
+    document.getElementById('time-sun').textContent = `자동: 오늘 ${sunText()}에 맞춰 바뀌어요`;
+  }
+
+  function toggleTimePanel() {
+    timePanel.hidden = !timePanel.hidden;
+    soundPanel.hidden = true;
+  }
+
+  for (const b of timeOptBtns) b.addEventListener('click', () => setTimeMode(b.dataset.time));
 
   // ===== 바라보기 모드 / 손을 떼면 UI 숨기기 =====
   const IDLE_TIME = 5;
@@ -3602,10 +3665,11 @@
       closeRename();
       return;
     }
-    if (!helpEl.hidden || !focusPanel.hidden || !soundPanel.hidden) {
+    if (!helpEl.hidden || !focusPanel.hidden || !soundPanel.hidden || !timePanel.hidden) {
       helpEl.hidden = true;
       focusPanel.hidden = true;
       soundPanel.hidden = true;
+      timePanel.hidden = true;
       return;
     }
     const { x, y } = toTank(e);
@@ -3672,6 +3736,7 @@
       helpEl.hidden = true;
       focusPanel.hidden = true;
       soundPanel.hidden = true;
+      timePanel.hidden = true;
       if (breath.on) toggleBreath();
     }
   });
