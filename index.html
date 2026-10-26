@@ -57,6 +57,10 @@
   body.idle .ui.auto-hide { opacity: 0; }
   body.idle .ui.auto-hide:hover { opacity: 1; }
   body.zen .ui.zen-hide { opacity: 0 !important; pointer-events: none !important; }
+  /* 바라보기 모드에서 화면을 한 번 누르면 도구 막대가 아래에서 잠깐 올라온다 */
+  #dock { transition: opacity 0.4s ease, transform 0.4s ease; }
+  body.zen:not(.peek) #dock { transform: translate(-50%, 24px); }
+  body.zen.peek #dock { opacity: 1 !important; pointer-events: auto !important; }
 
   #tooltip {
     position: fixed;
@@ -3236,15 +3240,26 @@
   // ===== 바라보기 모드 / 손을 떼면 UI 숨기기 =====
   const IDLE_TIME = 5;
   let idleTime = 0;
+  const dockEl = document.getElementById('dock');
 
   function wake() {
     idleTime = 0;
     document.body.classList.remove('idle');
   }
 
+  // 도구 막대를 만지는 동안은 숨지 않게 (터치에는 hover가 없다)
+  dockEl.addEventListener('pointerdown', wake);
+
+  // 바라보기 모드에서 화면을 누르면 도구 막대를 잠깐 꺼낸다. 가만히 두면 다시 숨는다
+  function peekDock() {
+    document.body.classList.add('peek');
+    showHint('눈 모양 버튼(H)을 누르면 바라보기 모드가 끝나요', IDLE_TIME);
+  }
+
   function toggleZen() {
     settings.zen = !settings.zen;
     document.body.classList.toggle('zen', settings.zen);
+    document.body.classList.remove('peek');
     refreshButtons();
     if (settings.zen) log('바라보기 모드 · H 키나 아무 곳 더블클릭으로 돌아와요');
     saveSoon();
@@ -3538,7 +3553,7 @@
     }
     if (focus.today) html += `<div>오늘 집중 ${focus.today}번</div>`;
     if (focus.phase === 'focus' && Date.now() < focus.hintUntil) {
-      html += '<div class="focus-hint">여기를 누르면 멈출 수 있어요 · 더블클릭: 도구 보기</div>';
+      html += '<div class="focus-hint">여기를 누르면 멈출 수 있어요 · 화면을 누르면 도구가 나와요</div>';
     }
     if (html === focus.shown) return;
     focus.shown = html;
@@ -3636,7 +3651,6 @@
     clicked: false,    // 후원 링크를 누른 적이 있으면 다시는 자동으로 안 띄운다
   };
   const donateCard = document.getElementById('donate-card');
-  const dockEl = document.getElementById('dock');
   let donateTimer = 0;
 
   function hideDonateCard() {
@@ -3797,6 +3811,11 @@
       focusPanel.hidden = true;
       soundPanel.hidden = true;
       timePanel.hidden = true;
+      return;
+    }
+    // 바라보기 모드에서 첫 터치는 도구 막대만 꺼낸다 (먹이를 떨어뜨리지 않는다)
+    if (settings.zen && !document.body.classList.contains('peek')) {
+      peekDock();
       return;
     }
     const { x, y } = toTank(e);
@@ -4042,6 +4061,7 @@
     idleTime += dt;
     if (idleTime > IDLE_TIME && !document.body.classList.contains('idle') && helpEl.hidden && !renaming) {
       document.body.classList.add('idle');
+      if (!dockEl.matches(':hover')) document.body.classList.remove('peek');
     }
     if (hintTimer > 0) {
       hintTimer -= dt;
