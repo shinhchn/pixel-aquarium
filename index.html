@@ -489,7 +489,6 @@
   const RANDOM_REST_CHANCE = 0.25;   // 성격과 다른 휴식 방식을 고를 확률
   const REST_TRAVEL_SPEED = 8;       // 바닥/수초로 쉬러 갈 때 속도
   const FLOAT_SLOWDOWN = 1.5;        // 제자리 휴식 때 감속 정도 (클수록 빨리 멈춤)
-  const CRUISE_RETURN_SPEED = 5;     // 휴식 후 원래 헤엄 높이로 돌아가는 속도
 
   // 도망
   const FLEE_BURST_BOOST = 0.8;      // 도망치기 시작할 때 순간 가속 (0.8 = 속도 +80%)
@@ -499,6 +498,25 @@
   // 화면 끝
   const EDGE_WRAP_CHANCE = 0.5;      // 화면 끝에 닿았을 때 밖으로 나가 반대편에서 들어올 확률 (나머지는 돌아섬)
   const WRAP_MARGIN = 4;             // 화면 밖으로 완전히 사라진 뒤 이만큼 더 가서 반대편으로 넘어간다(픽셀)
+
+  // 헤엄 리듬 (평소 헤엄이 일정하지 않게)
+  // 순항 / 느릿느릿 / 쏜살같이를 무작위로 오간다. mul: 평소 속도에 곱하는 배율, time: 이어지는 시간(초)
+  const GAITS = {
+    cruise: { mul: [0.7, 1.3], time: [2, 6] },
+    drift:  { mul: [0.05, 0.4], time: [1.5, 5] },  // 거의 멈춰서 두리번거린다
+    dart:   { mul: [2, 3.2], time: [0.25, 0.7] },  // 쏜살같이 튀어 나간다
+  };
+  const DART_CHANCE = [0.06, 0.3];   // 리듬을 바꿀 때 '쏜살같이'를 고를 확률 (활력 0 → 1)
+  const DRIFT_CHANCE = [0.4, 0.15];  // 리듬을 바꿀 때 '느릿느릿'을 고를 확률 (활력 0 → 1)
+  const DART_TURN_CHANCE = 0.3;      // 쏜살같이 튈 때 홱 돌아서 반대로 튈 확률
+  const DRIFT_TURN_CHANCE = 0.4;     // 느릿느릿할 때 고개를 돌려 반대로 갈 확률
+  const SWIM_ACCEL = 1.8;            // 원하는 속도로 따라붙는 빠르기 (작을수록 미끄러지듯 움직인다)
+  const DART_ACCEL = 6;              // 쏜살같이 튈 때는 확 빨라진다
+  const KICK_INTERVAL = [0.35, 1.4]; // 꼬리를 탁 차서 순간 빨라지는 간격(초)
+  const KICK_BOOST = [0.25, 0.7];    // 그때 더해지는 속도 (평소 속도에 대한 비율)
+  const DEPTH_CHANGE_TIME = [3, 10]; // 헤엄 높이를 새로 고르는 간격(초)
+  const DEPTH_WANDER = 35;           // 새 높이는 지금 높이에서 이만큼 안에서 고른다(픽셀)
+  const TURN_TIME = [2, 12];         // 무작위로 돌아서는 간격(초)
 
   // 수초
   const PLANT_SWAY = 4;             // 꼭대기가 흔들리는 최대 폭(픽셀)
@@ -999,7 +1017,7 @@
       fleeBurst: 0,             // 도망 순간 가속 남은 양 (1 → 0)
       stamina: def.stamina ?? (baby ? 60 : rand(50, STAMINA_MAX)),
       rest: null,               // 쉬는 중이면 { style, target, drift }
-      cruiseY: baby ? rand(swimTop() + 6, swimBottom(h) - 10) : null, // 휴식 후 돌아갈 헤엄 높이
+      cruiseY: baby ? rand(swimTop() + 6, swimBottom(h) - 10) : null, // 가고 싶은 헤엄 높이 (가끔 새로 고른다)
       partner: null,            // 짝짓기 상대
       mateTimer: 0,
       courtTime: 0,
@@ -1010,7 +1028,14 @@
       bobPhase: rand(0, Math.PI * 2),
       bobSpeed: rand(1, 2.5),
       bobAmp: rand(1.5, 4),
-      turnTimer: rand(3, 10),   // 다음 무작위 방향 전환까지 남은 시간(초)
+      turnTimer: rand(...TURN_TIME), // 다음 무작위 방향 전환까지 남은 시간(초)
+      vx: 0,                    // 지금 헤엄 속도(초당 픽셀). 평소 헤엄은 이 속도를 원하는 속도로 서서히 맞춘다
+      vy: 0,
+      gait: 'cruise',           // 헤엄 리듬 (GAITS)
+      gaitMul: 1,               // 리듬에 따른 속도 배율
+      gaitTimer: rand(0, 3),    // 다음 리듬으로 바뀔 때까지
+      kickTimer: rand(...KICK_INTERVAL),
+      depthTimer: rand(...DEPTH_CHANGE_TIME),
       tailPhase: rand(0, Math.PI * 2),
       tailSpeed: 0,             // 꼬리 흔드는 빠르기 (헤엄 속도를 따라간다)
       moveSpeed: 0,             // 이번 프레임 실제 이동 속도(초당 픽셀)
@@ -1021,6 +1046,7 @@
     f.personality = def.personality ?? pickPersonality(f);
     f.p = PERSONALITIES[f.personality];
     f.speed = rollSpeed(f);    // 초당 픽셀
+    f.vx = f.dir * f.speed;
     return f;
   }
 
@@ -1539,6 +1565,12 @@
     const my = f.baseY - prevBaseY;
     const moved = Math.hypot(mx, my);
     f.moveSpeed = dt > 0 ? moved / dt : 0;
+    // 실제로 움직인 속도를 기억해 두면, 평소 헤엄으로 돌아올 때 그 속도에서 자연스럽게 이어진다
+    // (다 자라서 몸이 커지는 순간처럼 위치가 훅 바뀌어도 튀지 않게 상한을 둔다)
+    if (dt > 0) {
+      f.vx = clamp(mx / dt, -80, 80);
+      f.vy = clamp(my / dt, -80, 80);
+    }
     updateStamina(f, moved, dt, mode);
     turnToward(f, mx, my, dt);
     // 이동량과 방향을 계산한 뒤에 넘겨야 순간이동이 이동으로 잡히지 않는다
@@ -1675,32 +1707,71 @@
     else if (c > 0.15) f.flipped = false;
   }
 
+  // 다음 헤엄 리듬을 고른다. 활발한 아이일수록 자주 튀어 나가고, 느긋한 아이는 자주 멈춰 두리번거린다
+  function pickGait(f) {
+    const a = f.traits.activity;
+    const dart = lerp(DART_CHANCE[0], DART_CHANCE[1], a) * (1 - 0.7 * nightness());
+    const drift = lerp(DRIFT_CHANCE[0], DRIFT_CHANCE[1], a);
+    const r = Math.random();
+    // 쏜살같이 튀어 나간 바로 뒤에는 또 튀지 않고 미끄러지듯 늦춘다
+    const kind = r < dart && f.gait !== 'dart' ? 'dart' : r < dart + drift ? 'drift' : 'cruise';
+    const g = GAITS[kind];
+    f.gait = kind;
+    f.gaitMul = rand(...g.mul);
+    f.gaitTimer = rand(...g.time);
+    if (kind === 'drift' && Math.random() < DRIFT_TURN_CHANCE) f.dir *= -1;
+    if (kind === 'dart') {
+      // 가끔은 홱 돌아서 튀고, 위아래로도 비스듬히 간다
+      if (Math.random() < DART_TURN_CHANCE) f.dir *= -1;
+      f.cruiseY = clamp(f.baseY + rand(-30, 30), swimTop() + 2, swimBottom(f.h) - 2);
+    }
+  }
+
   function wander(f, dt) {
     const prevX = f.x;
     // 밤에는 느릿느릿, 호흡 안내 중에는 더 잔잔하게
     const calm = lerp(1, NIGHT_SPEED_MUL, nightness()) * (breath.on ? 0.7 : 1);
-    f.x += f.dir * f.speed * calm * dt;
 
-    // 쉬고 난 뒤에는 원래 헤엄치던 높이로 천천히 올라간다
-    if (f.cruiseY !== null) {
-      const dy = f.cruiseY - f.baseY;
-      const step = CRUISE_RETURN_SPEED * dt;
-      if (Math.abs(dy) <= step) {
-        f.baseY = f.cruiseY;
-        f.cruiseY = null;
-      } else {
-        f.baseY += Math.sign(dy) * step;
-      }
+    f.gaitTimer -= dt;
+    if (f.gaitTimer <= 0) pickGait(f);
+
+    // 가끔 헤엄 높이를 새로 고른다 (쉬고 난 뒤에는 정해 둔 높이로 먼저 돌아간다)
+    f.depthTimer -= dt;
+    if (f.cruiseY === null || f.depthTimer <= 0) {
+      f.cruiseY = clamp(f.baseY + rand(-DEPTH_WANDER, DEPTH_WANDER), swimTop() + 2, swimBottom(f.h) - 2);
+      f.depthTimer = rand(...DEPTH_CHANGE_TIME);
     }
+
+    // 원하는 속도: 앞으로는 리듬대로, 위아래로는 목표 높이 쪽으로 비스듬히
+    const speed = f.speed * f.gaitMul * calm;
+    const vMax = Math.max(1.5, speed * 0.5);
+    const wantVx = f.dir * speed;
+    const wantVy = clamp((f.cruiseY - f.baseY) * 0.6, -vMax, vMax);
+    // 지금 속도를 원하는 속도로 서서히 맞춘다. 돌아설 때도 속도를 줄였다가 반대로 간다
+    const k = Math.min(1, dt * (f.gait === 'dart' ? DART_ACCEL : SWIM_ACCEL));
+    f.vx += (wantVx - f.vx) * k;
+    f.vy += (wantVy - f.vy) * k;
+
+    // 꼬리를 탁 차면 순간 빨라졌다가 미끄러지듯 느려진다
+    f.kickTimer -= dt;
+    if (f.kickTimer <= 0) {
+      f.vx += f.dir * f.speed * calm * rand(...KICK_BOOST) * (f.gait === 'drift' ? 0.3 : 1);
+      f.kickTimer = rand(...KICK_INTERVAL);
+    }
+
+    f.x += f.vx * dt;
+    f.baseY += f.vy * dt;
+    clampFish(f);
 
     // 화면 안에서 끝에 막 닿은 순간 한 번만 정한다: 밖으로 나갈지, 돌아설지
     // (이미 밖에 있거나 반대편에서 들어오는 중이면 그대로 지나간다)
+    // 돌아설 때는 유리에 닿은 듯 멈칫했다가 반대로 헤엄친다
     if (f.dir === 1 && prevX <= W - f.w && f.x > W - f.w && Math.random() >= EDGE_WRAP_CHANCE) {
-      f.x = W - f.w;
       f.dir = -1;
+      f.vx *= 0.3;
     } else if (f.dir === -1 && prevX >= 0 && f.x < 0 && Math.random() >= EDGE_WRAP_CHANCE) {
-      f.x = 0;
       f.dir = 1;
+      f.vx *= 0.3;
     }
 
     // 가끔 무작위로 돌아선다
@@ -1708,7 +1779,7 @@
     if (f.turnTimer <= 0) {
       f.dir *= -1;
       f.speed = rollSpeed(f);
-      f.turnTimer = rand(3, 10);
+      f.turnTimer = rand(...TURN_TIME);
     }
   }
 
@@ -3254,7 +3325,10 @@
         const f = c.f;
         emit('heart', centerOf(f).x + rand(-2, 2), f.y - 2);
         f.tailSpeed = 12; // 꼬리를 신나게 흔든다
-        if (!f.rest) f.cruiseY = swimTop() + rand(4, 20);
+        if (!f.rest) {
+          f.cruiseY = swimTop() + rand(4, 20);
+          f.depthTimer = rand(4, 6);
+        }
       }
     }
   }
